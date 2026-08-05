@@ -21,21 +21,27 @@ Commit Lovable: `1be2247a5741b784f5d8c98d0ef4914a47cbbead`.
 ## Hardening database applicato direttamente
 
 - rimossi i due cron che generavano 401 ogni minuto con anon key incorporata;
-- aggiunte tabelle server-only `oauth_states`, `provider_events`, `google_watch_channels`;
+- aggiunte tabelle server-only `oauth_states`, `provider_events`, `google_watch_channels` e `tenant_secrets`;
 - aggiunti claim atomici con `FOR UPDATE SKIP LOCKED` per coda chiamate e promemoria;
 - aggiunti lock, worker ID, tentativi ed error code sanificati;
 - aggiunti vincoli e indici di idempotenza per Twilio, WhatsApp, referral, appuntamenti, reminder e coda;
 - chiusa enumerazione anonima referral; introdotta RPC puntuale;
 - rimossa lettura autenticata degli audit log globali `tenant_id IS NULL`;
+- spostato `facebook_webhook_secret` fuori da `settings` e bloccate scritture client dei segreti;
+- tutte le policy `UPDATE` hanno ora `WITH CHECK`, impedendo lo spostamento di righe verso altri tenant;
+- gli helper `SECURITY DEFINER` non accettano più interrogazioni su user ID arbitrari;
+- `fix_contacts_without_stage()` è ora service-role-only;
 - aggiunti default privacy: timezone, AI data processing opt-in e allowed origins.
 
 Verifiche database:
 
 - cron attivi dopo la rimozione: `0`;
-- RLS attiva sulle tre nuove tabelle: `true`;
+- RLS attiva sulle nuove tabelle: `true`;
 - policy anon referral rimasta: `0`;
 - policy audit globale autenticati rimasta: `0`;
-- indice univoco coda attiva: presente.
+- policy UPDATE senza `WITH CHECK`: `0`;
+- `facebook_webhook_secret` non nullo in settings: `0`;
+- execute anon su helper tenant e riparazione globale: `false`.
 
 ## Blocco operativo
 
