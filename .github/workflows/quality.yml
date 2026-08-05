@@ -1,0 +1,41 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify migration state
+        run: |
+          test -f docs/AUDIT-2026-08-05.md
+          test -f supabase/migrations/202608050001_harden_secret_access.sql
+      - name: Setup Node
+        if: ${{ hashFiles('package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm ci
+      - name: Lint
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm run lint
+      - name: Test
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm test -- --run
+      - name: Build
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm run build
+      - name: Dependency audit
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm audit --audit-level=high
