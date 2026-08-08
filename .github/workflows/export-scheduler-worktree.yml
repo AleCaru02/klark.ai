@@ -1,0 +1,21 @@
+name: Export Scheduler Worktree
+
+on:
+  push:
+    branches:
+      - mvp/call-queue-scheduler
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: zip -qr /tmp/scheduler-worktree.zip . -x '.git/*' 'node_modules/*' 'dist/*' '.vercel/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-worktree
+          path: /tmp/scheduler-worktree.zip
+          retention-days: 1
