@@ -105,7 +105,7 @@ do $$
 declare
   n integer;
 begin
-  -- Positive control: Tenant A can read its own contact.
+  -- Positive control: the authenticated app can read Tenant A's own contact.
   select count(*) into n
   from public.contacts
   where tenant_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
@@ -154,17 +154,21 @@ begin
   where tenant_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
   if n <> 0 then raise exception 'Tenant A can read Tenant B knowledge'; end if;
 
-  -- Service status B is hidden and not mutable by a normal tenant member.
+  -- Service status B is hidden. Normal tenant members have no UPDATE table privilege.
   select count(*) into n
   from public.tenant_service_accounts
   where tenant_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
   if n <> 0 then raise exception 'Tenant A can read Tenant B service status'; end if;
 
-  update public.tenant_service_accounts
-  set admin_notes = 'cross tenant write'
-  where tenant_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
-  get diagnostics n = row_count;
-  if n <> 0 then raise exception 'Tenant A can modify Tenant B service status'; end if;
+  begin
+    update public.tenant_service_accounts
+    set admin_notes = 'cross tenant write'
+    where tenant_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+    get diagnostics n = row_count;
+    if n <> 0 then raise exception 'Tenant A can modify Tenant B service status'; end if;
+  exception
+    when insufficient_privilege then null;
+  end;
 
   -- OAuth token tables are not readable by authenticated clients at all.
   begin
