@@ -23,6 +23,9 @@ jobs:
           base64 -d .recovery/calendar.patch.b64 | gzip -d > /tmp/calendar.patch
           git apply -p1 --check /tmp/calendar.patch
           git apply -p1 /tmp/calendar.patch
+          # quality.yml is updated separately through the GitHub connector because
+          # GITHUB_TOKEN cannot write workflow files without workflows permission.
+          git checkout HEAD -- .github/workflows/quality.yml
           rm -rf .recovery
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
