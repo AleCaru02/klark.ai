@@ -30,10 +30,17 @@ describe("MVP tenant lifecycle without Stripe", () => {
       "supabase/functions/twilio-make-call/index.ts",
       "supabase/functions/process-call-queue/index.ts",
       "supabase/functions/ai-book-appointment/index.ts",
-      "supabase/functions/site-chat-message/index.ts",
     ]) {
       expect(source(path)).toContain("requireActiveTenant");
     }
+  });
+
+  it("keeps the explicitly enabled public site chatbot outside commercial tenant lifecycle", () => {
+    const siteChat = source("supabase/functions/site-chat-message/index.ts");
+    expect(siteChat).not.toContain("requireActiveTenant(client, chatbot.tenant_id)");
+    expect(siteChat).toContain("loadChatbot(client, widgetKey)");
+    expect(siteChat).toContain("originAllowed(requestOrigin, chatbot.allowed_origins)");
+    expect(siteChat).toContain("verifySessionToken");
   });
 
   it("versions the four administrative states and fail-closed queue gate", () => {
