@@ -27,6 +27,7 @@ jobs:
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       APP_URL: https://clerkai-preview-alecaru02.vercel.app
       ALLOWED_ORIGINS: https://www.clerkai.it,https://clerkai.it
+      AUTH_REDIRECTS: https://clerkai-preview-alecaru02.vercel.app/**,https://www.clerkai.it/**,https://clerkai.it/**
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,6 +57,23 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+
+      - name: Keep Auth assisted-onboarding only
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(jq -cn --arg site "$APP_URL" --arg redirects "$AUTH_REDIRECTS" '{disable_signup:true,site_url:$site,uri_allow_list:$redirects}')
+          curl -fsS -X PATCH "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data "$payload" >/dev/null
+          cfg="$RUNNER_TEMP/auth-config.json"
+          curl -fsS "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" > "$cfg"
+          test "$(jq -r '.disable_signup' "$cfg")" = "true"
+          test "$(jq -r '.site_url' "$cfg")" = "$APP_URL"
+          test "$(jq -r '.uri_allow_list' "$cfg")" = "$AUTH_REDIRECTS"
+          rm -f "$cfg"
 
       - name: Link and apply versioned migrations to candidate only
         shell: bash
