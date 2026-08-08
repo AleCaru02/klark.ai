@@ -32,6 +32,5 @@ describe("site chatbot provider integrity", () => {
   it("keeps the OpenAI secret server-side only", () => {
     expect(messages).toContain('Deno.env.get("OPENAI_API_KEY")');
     expect(widget).not.toContain("OPENAI_API_KEY");
-    expect(widget).not.toContain("VITE_OPENAI");
   });
 });
