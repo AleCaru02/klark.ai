@@ -20,7 +20,14 @@ jobs:
       - name: Apply prepared lifecycle patch
         run: |
           set -euo pipefail
-          cat .recovery/mvp.patch.part1 .recovery/mvp.patch.part2 .recovery/mvp.patch.part3 \
+          cat \
+            .recovery/mvp.patch.part1 \
+            .recovery/mvp.patch.part2a \
+            .recovery/mvp.patch.part2b1 \
+            .recovery/mvp.patch.part2b2a1 \
+            .recovery/mvp.patch.part2b2a2 \
+            .recovery/mvp.patch.part2b2b \
+            .recovery/mvp.patch.part3 \
             | base64 -d | gzip -d > /tmp/mvp.patch
           git apply --check /tmp/mvp.patch
           git apply /tmp/mvp.patch
