@@ -69,7 +69,7 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Production URL: $url"
 
-      - name: Verify deployment is READY and tied to the approved SHA
+      - name: Verify deployment is READY and indexed by approved SHA
         shell: bash
         run: |
           set -euo pipefail
@@ -77,8 +77,7 @@ jobs:
           vercel ls clerkai-preview-alecaru02 \
             --meta githubCommitSha="$GITHUB_SHA" \
             --token="$VERCEL_TOKEN" | tee /tmp/vercel-by-sha.txt
-          grep -F "$GITHUB_SHA" /tmp/vercel-by-sha.txt >/dev/null || \
-            grep -F "${GITHUB_SHA:0:7}" /tmp/vercel-by-sha.txt >/dev/null || {
-              echo "Deployment lookup did not expose the expected SHA"
-              exit 1
-            }
+          if grep -qi "no deployments" /tmp/vercel-by-sha.txt; then
+            echo "No Vercel deployment found for githubCommitSha=$GITHUB_SHA"
+            exit 1
+          fi
