@@ -20,7 +20,7 @@ jobs:
       - name: Apply CRM and isolation patch
         run: |
           set -euo pipefail
-          base64 -d .recovery/crm.patch.b64 | gzip -d > /tmp/crm.patch
+          tr -d '\r\n ' < .recovery/crm.patch.b64 | sed 's/=$//' | base64 -d | gzip -d > /tmp/crm.patch
           git apply -p1 --check /tmp/crm.patch
           git apply -p1 /tmp/crm.patch
           rm -rf .recovery
