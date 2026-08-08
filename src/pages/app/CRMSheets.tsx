@@ -55,6 +55,9 @@ interface Contact {
   updated_at: string;
   last_activity_at: string | null;
   do_not_contact: boolean | null;
+  callback_requested: boolean;
+  callback_requested_at: string | null;
+  contact_permission_source: string | null;
   from_inactive_form: boolean | null;
   tenant_id: string;
   submission_id: string | null;
@@ -104,6 +107,34 @@ type SortDirection = "asc" | "desc" | null;
 // ── Helper: get contact's stage_id from contact_stages ──
 function getContactStageId(contact: Contact): string | null {
   return contact.contact_stages?.[0]?.stage_id || null;
+}
+
+function ContactConsentBadges({ contact }: { contact: Contact }) {
+  const callbackVerified = contact.callback_requested === true
+    && Boolean(contact.callback_requested_at)
+    && Boolean(contact.contact_permission_source?.trim());
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {contact.do_not_contact ? (
+        <Badge variant="destructive" className="text-[10px] px-1.5 py-0">DNC</Badge>
+      ) : null}
+      <Badge
+        variant="outline"
+        className={cn(
+          "text-[10px] px-1.5 py-0",
+          callbackVerified
+            ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+            : "text-muted-foreground",
+        )}
+        title={callbackVerified
+          ? `Ricontatto verificato: ${contact.contact_permission_source}`
+          : "Nessuna autorizzazione di ricontatto verificata"}
+      >
+        {callbackVerified ? "Richiamo verificato" : "Richiamo non verificato"}
+      </Badge>
+    </div>
+  );
 }
 
 // ── Sheet Tab Component ──
@@ -752,7 +783,12 @@ export default function CRMSheets() {
   // ── Update contact mutation ──
   const updateContactMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<Contact> }) => {
-      const { error } = await supabase.from("contacts").update(updates as never).eq("id", id);
+      if (!tenantId) throw new Error("No tenant");
+      const { error } = await supabase
+        .from("contacts")
+        .update(updates as never)
+        .eq("tenant_id", tenantId)
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -770,15 +806,28 @@ export default function CRMSheets() {
       if (!tenantId) throw new Error("No tenant");
 
       // Upsert contact_stages
-      const { data: existing } = await supabase.from("contact_stages").select("id").eq("contact_id", contactId).single();
+      const { data: existing } = await supabase
+        .from("contact_stages")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("contact_id", contactId)
+        .single();
       if (existing) {
-        await supabase.from("contact_stages").update({ stage_id: stageId, updated_at: new Date().toISOString() }).eq("contact_id", contactId);
+        await supabase
+          .from("contact_stages")
+          .update({ stage_id: stageId, updated_at: new Date().toISOString() })
+          .eq("tenant_id", tenantId)
+          .eq("contact_id", contactId);
       } else {
         await supabase.from("contact_stages").insert({ tenant_id: tenantId, contact_id: contactId, stage_id: stageId });
       }
 
       // Update last_activity
-      await supabase.from("contacts").update({ last_activity_at: new Date().toISOString() }).eq("id", contactId);
+      await supabase
+        .from("contacts")
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId)
+        .eq("id", contactId);
 
       // Auto-create appointment if moving to appointment_set stage
       const targetStage = stages.find(s => s.id === stageId);
@@ -812,7 +861,12 @@ export default function CRMSheets() {
   // ── Delete contact mutation ──
   const deleteContactMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("contacts").delete().eq("id", id);
+      if (!tenantId) throw new Error("No tenant");
+      const { error } = await supabase
+        .from("contacts")
+        .delete()
+        .eq("tenant_id", tenantId)
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -1094,7 +1148,10 @@ export default function CRMSheets() {
                 return (
                   <div key={contact.id} className="grid grid-cols-[1fr_120px_100px_90px_60px_70px_150px_90px_90px_1fr_80px_60px] gap-2 px-4 py-2 border-b hover:bg-muted/30 transition-colors items-center text-sm">
                     {/* Nome */}
-                    <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                    <div className="flex items-center gap-2 min-w-0">
+                      <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                      <ContactConsentBadges contact={contact} />
+                    </div>
                     {/* Telefono */}
                     <span className="text-xs truncate">{contact.phone_e164 || "—"}</span>
                     {/* Tipo */}
@@ -1149,6 +1206,14 @@ export default function CRMSheets() {
                             Sposta in {option.label}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem
+                          onClick={() => updateContactMutation.mutate({
+                            id: contact.id,
+                            updates: { do_not_contact: !contact.do_not_contact },
+                          })}
+                        >
+                          {contact.do_not_contact ? "Riabilita contatto" : "Non contattare (DNC)"}
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setDeleteContactId(contact.id)} className="text-destructive">
                           <Trash2 className="h-4 w-4 mr-2" />Elimina
@@ -1180,7 +1245,10 @@ export default function CRMSheets() {
                 return (
                   <div key={contact.id} className="grid grid-cols-[1fr_130px_100px_100px_100px_120px_1fr_60px] gap-2 px-4 py-2 border-b hover:bg-muted/30 transition-colors items-center text-sm">
                     <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                       <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                      <ContactConsentBadges contact={contact} />
+                    </div>
                       {contact.submission_id && (
                         <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setAnswersModal({ open: true, contact })} title="Risposte modulo">
                           <Eye className="h-3 w-3" />
@@ -1218,6 +1286,14 @@ export default function CRMSheets() {
                             Sposta in {option.label}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem
+                          onClick={() => updateContactMutation.mutate({
+                            id: contact.id,
+                            updates: { do_not_contact: !contact.do_not_contact },
+                          })}
+                        >
+                          {contact.do_not_contact ? "Riabilita contatto" : "Non contattare (DNC)"}
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setDeleteContactId(contact.id)} className="text-destructive">
                           <Trash2 className="h-4 w-4 mr-2" />Elimina
@@ -1235,7 +1311,10 @@ export default function CRMSheets() {
                 return (
                   <div key={contact.id} className="grid grid-cols-[1fr_130px_180px_100px_100px_100px_60px] gap-2 px-4 py-2 border-b hover:bg-muted/30 transition-colors items-center text-sm">
                     <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                       <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                      <ContactConsentBadges contact={contact} />
+                    </div>
                       {contact.submission_id && (
                         <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setAnswersModal({ open: true, contact })} title="Risposte modulo">
                           <Eye className="h-3 w-3" />
@@ -1267,6 +1346,14 @@ export default function CRMSheets() {
                             Sposta in {option.label}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem
+                          onClick={() => updateContactMutation.mutate({
+                            id: contact.id,
+                            updates: { do_not_contact: !contact.do_not_contact },
+                          })}
+                        >
+                          {contact.do_not_contact ? "Riabilita contatto" : "Non contattare (DNC)"}
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setDeleteContactId(contact.id)} className="text-destructive">
                           <Trash2 className="h-4 w-4 mr-2" />Elimina
@@ -1283,7 +1370,10 @@ export default function CRMSheets() {
                 const lastNote = lastNoteByContact[contact.id];
                 return (
                   <div key={contact.id} className="grid grid-cols-[1fr_130px_180px_120px_1fr_60px] gap-2 px-4 py-2 border-b hover:bg-muted/30 transition-colors items-center text-sm">
-                    <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                    <div className="flex items-center gap-2 min-w-0">
+                      <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                      <ContactConsentBadges contact={contact} />
+                    </div>
                     <span className="text-xs truncate">{contact.phone_e164 || "—"}</span>
                     <span className="text-xs truncate">{contact.email || "—"}</span>
                     {/* Data chiusura */}
@@ -1306,6 +1396,14 @@ export default function CRMSheets() {
                             Sposta in {option.label}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem
+                          onClick={() => updateContactMutation.mutate({
+                            id: contact.id,
+                            updates: { do_not_contact: !contact.do_not_contact },
+                          })}
+                        >
+                          {contact.do_not_contact ? "Riabilita contatto" : "Non contattare (DNC)"}
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setDeleteContactId(contact.id)} className="text-destructive">
                           <Trash2 className="h-4 w-4 mr-2" />Elimina
@@ -1321,7 +1419,10 @@ export default function CRMSheets() {
                 const contactStageId = getContactStageId(contact);
                 return (
                   <div key={contact.id} className="grid grid-cols-[1fr_130px_180px_120px_60px] gap-2 px-4 py-2 border-b hover:bg-muted/30 transition-colors items-center text-sm">
-                    <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                    <div className="flex items-center gap-2 min-w-0">
+                      <EditableCell value={contact.name} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { name: value } })} />
+                      <ContactConsentBadges contact={contact} />
+                    </div>
                     <EditableCell value={contact.phone_e164 || ""} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { phone_e164: value || null } })} type="tel" />
                     <EditableCell value={contact.email || ""} onSave={(value) => updateContactMutation.mutate({ id: contact.id, updates: { email: value || null } })} type="email" />
                     <span className="text-muted-foreground text-xs">{format(new Date(contact.created_at), "d MMM yy", { locale: it })}</span>
@@ -1336,6 +1437,14 @@ export default function CRMSheets() {
                             Sposta in {option.label}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem
+                          onClick={() => updateContactMutation.mutate({
+                            id: contact.id,
+                            updates: { do_not_contact: !contact.do_not_contact },
+                          })}
+                        >
+                          {contact.do_not_contact ? "Riabilita contatto" : "Non contattare (DNC)"}
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setDeleteContactId(contact.id)} className="text-destructive">
                           <Trash2 className="h-4 w-4 mr-2" />Elimina

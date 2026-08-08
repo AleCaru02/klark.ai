@@ -275,6 +275,7 @@ serve(async (request) => {
     }
 
     await Promise.all([
+      touchContactActivity(supabase, body.tenant_id, body.contact_id),
       moveContactToStageType(supabase, body.tenant_id, body.contact_id, "appointment_set"),
       completeActiveQueue(supabase, body.tenant_id, body.contact_id, body.date, body.time),
       updateCallLog(
@@ -651,6 +652,19 @@ async function compensateExternalBooking(
       // Compensation is best effort and the original failure is returned.
     }
   }
+}
+
+async function touchContactActivity(
+  supabase: any,
+  tenantId: string,
+  contactId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("contacts")
+    .update({ last_activity_at: new Date().toISOString() })
+    .eq("tenant_id", tenantId)
+    .eq("id", contactId);
+  if (error) throw error;
 }
 
 async function moveContactToStageType(

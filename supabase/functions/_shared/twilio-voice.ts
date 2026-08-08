@@ -205,6 +205,14 @@ export async function resolveInboundTwilioContext(
   if (contactLookupError) throw contactLookupError;
 
   let contactId = existingContact?.id as string | undefined;
+  if (contactId) {
+    const { error: touchError } = await supabase
+      .from("contacts")
+      .update({ last_activity_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId)
+      .eq("id", contactId);
+    if (touchError) throw touchError;
+  }
   if (!contactId) {
     const { data: contact, error: contactCreateError } = await supabase
       .from("contacts")

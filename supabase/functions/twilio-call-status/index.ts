@@ -164,9 +164,26 @@ async function processCallLog(
   form: URLSearchParams,
 ) {
   const duration = Number(form.get("CallDuration"));
-  const updates: Record<string, unknown> = {};
-  if (Number.isFinite(duration) && duration >= 0) updates.connected_seconds = duration;
-  if (Object.keys(updates).length === 0) return;
+  const { data: existing, error: existingError } = await supabase
+    .from("call_logs")
+    .select("outcome_json")
+    .eq("tenant_id", tenantId)
+    .eq("twilio_call_sid", callSid)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  const outcome = isRecord(existing?.outcome_json) ? existing.outcome_json : {};
+  const updates: Record<string, unknown> = {
+    outcome_json: {
+      ...outcome,
+      call_status: form.get("CallStatus") || outcome.call_status || null,
+      answered_by: form.get("AnsweredBy") || outcome.answered_by || null,
+    },
+  };
+  if (Number.isFinite(duration) && duration >= 0) {
+    updates.connected_seconds = duration;
+    (updates.outcome_json as Record<string, unknown>).duration_seconds = duration;
+  }
 
   const { error } = await supabase
     .from("call_logs")
@@ -193,6 +210,14 @@ async function processQueueStatus(
   if (queueError) throw queueError;
 
   const now = new Date();
+  if (contactId) {
+    const { error: touchError } = await supabase
+      .from("contacts")
+      .update({ last_activity_at: now.toISOString() })
+      .eq("tenant_id", tenantId)
+      .eq("id", contactId);
+    if (touchError) throw touchError;
+  }
   const baseUpdate: Record<string, unknown> = {
     last_attempt_at: now.toISOString(),
     last_voice_outcome: callStatus,
@@ -371,4 +396,8 @@ async function moveContactToStageType(
       stage_id: stage.id,
     });
   if (error) throw error;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

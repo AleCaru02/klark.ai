@@ -114,7 +114,12 @@ export default function Logs() {
 
         const formatted: CallLog[] = (data || []).map((log) => {
           const contact = log.contacts as unknown as { name: string; phone_e164: string } | null;
-          const outcome = log.outcome_json as { action?: string } | null;
+          const outcome = log.outcome_json as {
+            action?: string;
+            call_status?: string;
+            appointment_booked?: boolean;
+            handoff_requested?: boolean;
+          } | null;
 
           return {
             id: log.id,
@@ -125,7 +130,11 @@ export default function Logs() {
             createdAt: new Date(log.created_at),
             hasRecording: !!log.recording_url,
             hasTranscript: !!log.transcript,
-            outcome: outcome?.action || null,
+            outcome: outcome?.appointment_booked
+              ? "appointment_booked"
+              : outcome?.handoff_requested
+              ? "human_handoff"
+              : outcome?.action || outcome?.call_status || null,
             recordingUrl: log.recording_url || null,
             transcript: log.transcript || null,
           };
