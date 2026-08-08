@@ -2,11 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
   createServiceClient,
   requiredEnv,
+  requireActiveTenant,
   verifyTwilioFormSignature,
 } from "../_shared/security.ts";
 import {
   gatherActionUrl,
   resolveExistingTwilioContext,
+  resolveTwilioWebhookAuthToken,
   twimlResponse,
   xmlEscape,
 } from "../_shared/twilio-voice.ts";
@@ -18,29 +20,27 @@ serve(async (request) => {
 
   const rawBody = await request.text();
   const form = new URLSearchParams(rawBody);
-  let twilioAuthToken: string;
+  const supabase = createServiceClient();
   try {
-    twilioAuthToken = requiredEnv("TWILIO_AUTH_TOKEN");
+    const twilioAuthToken = await resolveTwilioWebhookAuthToken(supabase, form);
+    if (!twilioAuthToken) return new Response("Webhook unavailable", { status: 503 });
+    if (
+      !(await verifyTwilioFormSignature(
+        request.url,
+        form,
+        request.headers.get("X-Twilio-Signature"),
+        twilioAuthToken,
+      ))
+    ) {
+      return new Response("Unauthorized", { status: 401 });
+    }
   } catch (error) {
     console.error("[twilio-voice-gather] Twilio verification unavailable", error);
     return new Response("Webhook unavailable", { status: 503 });
   }
 
-  if (
-    !(await verifyTwilioFormSignature(
-      request.url,
-      form,
-      request.headers.get("X-Twilio-Signature"),
-      twilioAuthToken,
-    ))
-  ) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
   const callSid = form.get("CallSid") ?? "";
   if (!callSid) return new Response("Missing CallSid", { status: 400 });
-
-  const supabase = createServiceClient();
   try {
     const context = await resolveExistingTwilioContext(
       supabase,
@@ -54,9 +54,11 @@ serve(async (request) => {
       return await handleDialResult(supabase, context, dialCallStatus);
     }
 
+    await requireActiveTenant(supabase, context.tenantId);
+
     const speechResult = (form.get("SpeechResult") ?? "").trim().slice(0, 4000);
     const confidence = Number(form.get("Confidence") ?? "1");
-    const actionUrl = gatherActionUrl(requiredEnv("SUPABASE_URL"), context.queueId);
+    const actionUrl = gatherActionUrl(requiredEnv("SUPABASE_URL"), context.queueId, context.testMode);
     if (!speechResult) {
       return repeatPrompt(
         "Non ho capito, può ripetere?",
@@ -78,7 +80,7 @@ serve(async (request) => {
       supabase
         .from("settings")
         .select(
-          "ai_prompt_json,availability_json,booking_rules_json,formality,voice_pack_id,timezone,ai_data_processing_opt_in",
+          "ai_prompt_json,availability_json,booking_rules_json,formality,voice_pack_id,timezone,ai_data_processing_opt_in,voice_enabled,voice_runtime_verified,voice_test_mode",
         )
         .eq("tenant_id", context.tenantId)
         .maybeSingle(),
@@ -97,6 +99,14 @@ serve(async (request) => {
     if (settingsError) throw settingsError;
     if (tenantError) throw tenantError;
     if (callLogError) throw callLogError;
+
+    if (context.testMode) {
+      if (settings?.voice_test_mode !== true) {
+        return twimlResponse('<Say language="it-IT">Il collaudo Voice non è attivo.</Say><Hangup/>');
+      }
+    } else if (settings?.voice_enabled !== true || settings?.voice_runtime_verified !== true) {
+      return twimlResponse('<Say language="it-IT">Il servizio Voice non è attivo.</Say><Hangup/>');
+    }
 
     const outcome = isRecord(callLog?.outcome_json)
       ? callLog.outcome_json
@@ -212,6 +222,7 @@ serve(async (request) => {
           turn_count: turnCount,
           appointment_booked: appointmentBooked,
           handoff_requested: transferRequested,
+          test_mode: context.testMode,
         },
       })
       .eq("tenant_id", context.tenantId)
@@ -515,17 +526,17 @@ async function requestAiResponse(
   systemPrompt: string,
   history: Array<{ role: string; content: string }>,
 ): Promise<string> {
-  const apiKey = Deno.env.get("LOVABLE_API_KEY")?.trim();
-  if (!apiKey) return "Mi scusi, il servizio non è disponibile. La faremo richiamare.";
+  const apiKey = Deno.env.get("OPENAI_API_KEY")?.trim();
+  if (!apiKey) return "Mi scusi, il servizio AI non è disponibile. La faremo richiamare da una persona.";
 
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "gpt-4.1-mini",
       messages: [
         { role: "system", content: systemPrompt },
         ...history.slice(-20),
@@ -535,8 +546,8 @@ async function requestAiResponse(
     }),
   });
   if (!response.ok) {
-    console.error("[twilio-voice-gather] AI rejected", response.status);
-    return "Mi scusi, ho avuto un problema. La faremo richiamare.";
+    console.error("[twilio-voice-gather] OpenAI rejected", response.status);
+    return "Mi scusi, ho avuto un problema con il servizio AI. La faremo richiamare da una persona.";
   }
 
   const data = await response.json() as any;

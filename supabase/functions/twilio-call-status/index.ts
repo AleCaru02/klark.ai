@@ -4,17 +4,23 @@ import {
   markProviderEventFailed,
   markProviderEventProcessed,
   registerProviderEvent,
-  requiredEnv,
   sha256Hex,
   verifyTwilioFormSignature,
 } from "../_shared/security.ts";
+import { resolveTwilioWebhookAuthToken } from "../_shared/twilio-voice.ts";
 
 serve(async (request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
   const rawBody = await request.text();
   const form = new URLSearchParams(rawBody);
-  const authToken = Deno.env.get("TWILIO_AUTH_TOKEN")?.trim();
+  const supabase = createServiceClient();
+  let authToken: string | null = null;
+  try {
+    authToken = await resolveTwilioWebhookAuthToken(supabase, form);
+  } catch (error) {
+    console.error("[twilio-call-status] Unable to resolve webhook auth token", error);
+  }
   if (!authToken) return new Response("Webhook unavailable", { status: 503 });
 
   const validSignature = await verifyTwilioFormSignature(
@@ -30,7 +36,6 @@ serve(async (request) => {
   const recordingSid = form.get("RecordingSid") || "";
   if (!callSid) return new Response("Missing CallSid", { status: 400 });
 
-  const supabase = createServiceClient();
   const url = new URL(request.url);
   let tenantId = url.searchParams.get("tenant_id");
   let contactId = url.searchParams.get("contact_id");
@@ -125,6 +130,24 @@ async function processRecording(
 ) {
   const recordingUrl = form.get("RecordingUrl");
   if (!recordingUrl) return;
+
+  const { data: callLog, error: readError } = await supabase
+    .from("call_logs")
+    .select("outcome_json")
+    .eq("tenant_id", tenantId)
+    .eq("twilio_call_sid", callSid)
+    .maybeSingle();
+  if (readError) throw readError;
+  const outcome = typeof callLog?.outcome_json === "object" && callLog.outcome_json !== null
+    ? callLog.outcome_json as Record<string, unknown>
+    : {};
+  if (outcome.recording_requested !== true) {
+    console.warn("[twilio-call-status] Ignoring unexpected recording callback", {
+      tenant_id: tenantId,
+      call_sid: callSid,
+    });
+    return;
+  }
 
   const { error } = await supabase
     .from("call_logs")

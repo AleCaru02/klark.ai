@@ -2,12 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
   createServiceClient,
   requiredEnv,
+  requireActiveTenant,
   verifyTwilioFormSignature,
 } from "../_shared/security.ts";
 import {
   gatherActionUrl,
   resolveExistingTwilioContext,
   resolveInboundTwilioContext,
+  resolveTwilioWebhookAuthToken,
   twimlResponse,
   xmlEscape,
 } from "../_shared/twilio-voice.ts";
@@ -17,23 +19,24 @@ serve(async (request) => {
 
   const rawBody = await request.text();
   const form = new URLSearchParams(rawBody);
-  let twilioAuthToken: string;
+  const supabase = createServiceClient();
+
   try {
-    twilioAuthToken = requiredEnv("TWILIO_AUTH_TOKEN");
+    const twilioAuthToken = await resolveTwilioWebhookAuthToken(supabase, form);
+    if (!twilioAuthToken) return new Response("Webhook unavailable", { status: 503 });
+    if (
+      !(await verifyTwilioFormSignature(
+        request.url,
+        form,
+        request.headers.get("X-Twilio-Signature"),
+        twilioAuthToken,
+      ))
+    ) {
+      return new Response("Unauthorized", { status: 401 });
+    }
   } catch (error) {
     console.error("[twilio-voice-webhook] Twilio verification unavailable", error);
     return new Response("Webhook unavailable", { status: 503 });
-  }
-
-  if (
-    !(await verifyTwilioFormSignature(
-      request.url,
-      form,
-      request.headers.get("X-Twilio-Signature"),
-      twilioAuthToken,
-    ))
-  ) {
-    return new Response("Unauthorized", { status: 401 });
   }
 
   const callSid = form.get("CallSid") ?? "";
@@ -43,8 +46,6 @@ serve(async (request) => {
   const answeredBy = form.get("AnsweredBy") ?? "";
   if (!callSid) return new Response("Missing CallSid", { status: 400 });
 
-  const supabase = createServiceClient();
-
   try {
     let context = await resolveExistingTwilioContext(
       supabase,
@@ -52,12 +53,7 @@ serve(async (request) => {
       new URL(request.url),
     );
     if (!context && direction === "inbound") {
-      context = await resolveInboundTwilioContext(
-        supabase,
-        callSid,
-        from,
-        to,
-      );
+      context = await resolveInboundTwilioContext(supabase, callSid, from, to);
     }
     if (!context) {
       console.error("[twilio-voice-webhook] Unable to resolve call context", {
@@ -68,6 +64,8 @@ serve(async (request) => {
         '<Say language="it-IT">Mi dispiace, il servizio non è disponibile.</Say><Hangup/>',
       );
     }
+
+    await requireActiveTenant(supabase, context.tenantId);
 
     if (["machine_start", "machine_end_beep", "machine_end_silence"].includes(answeredBy)) {
       if (context.queueId) {
@@ -94,7 +92,7 @@ serve(async (request) => {
       await Promise.all([
         supabase
           .from("settings")
-          .select("formality,voice_pack_id,timezone")
+          .select("formality,voice_pack_id,timezone,voice_enabled,voice_runtime_verified,voice_test_mode")
           .eq("tenant_id", context.tenantId)
           .maybeSingle(),
         supabase
@@ -105,6 +103,14 @@ serve(async (request) => {
       ]);
     if (settingsError) throw settingsError;
     if (tenantError) throw tenantError;
+
+    if (context.testMode) {
+      if (settings?.voice_test_mode !== true) {
+        return twimlResponse('<Say language="it-IT">Il collaudo Voice non è attivo.</Say><Hangup/>');
+      }
+    } else if (settings?.voice_enabled !== true || settings?.voice_runtime_verified !== true) {
+      return twimlResponse('<Say language="it-IT">Il servizio Voice non è attivo.</Say><Hangup/>');
+    }
 
     let contactName: string | null = null;
     if (context.contactId) {
@@ -121,9 +127,7 @@ serve(async (request) => {
       }
     }
 
-    const timezone = typeof settings?.timezone === "string"
-      ? settings.timezone
-      : "Europe/Rome";
+    const timezone = typeof settings?.timezone === "string" ? settings.timezone : "Europe/Rome";
     const hour = Number(
       new Intl.DateTimeFormat("en-GB", {
         timeZone: timezone,
@@ -131,11 +135,7 @@ serve(async (request) => {
         hourCycle: "h23",
       }).format(new Date()),
     );
-    const timeGreeting = hour < 13
-      ? "Buongiorno"
-      : hour < 18
-      ? "Buon pomeriggio"
-      : "Buonasera";
+    const timeGreeting = hour < 13 ? "Buongiorno" : hour < 18 ? "Buon pomeriggio" : "Buonasera";
     const isLei = settings?.formality !== "tu";
     const tenantName = typeof tenant?.name === "string" && tenant.name.trim()
       ? tenant.name.trim().slice(0, 160)
@@ -144,11 +144,20 @@ serve(async (request) => {
 
     const greeting = inbound
       ? contactName
-        ? `${timeGreeting} ${contactName}, ha chiamato ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
-        : `${timeGreeting}, ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
+        ? `${timeGreeting} ${contactName}, sono l'assistente virtuale di ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
+        : `${timeGreeting}, sono l'assistente virtuale di ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
       : contactName
-      ? `${timeGreeting} ${contactName}, ${isLei ? "La" : "ti"} chiamo da ${tenantName}. ${isLei ? "Ha" : "Hai"} un momento?`
-      : `${timeGreeting}, ${isLei ? "La" : "ti"} chiamo da ${tenantName}. ${isLei ? "Ha" : "Hai"} un momento?`;
+      ? `${timeGreeting} ${contactName}, sono l'assistente virtuale di ${tenantName}. ${isLei ? "La" : "Ti"} contatto per la richiesta ricevuta. ${isLei ? "Ha" : "Hai"} un momento?`
+      : `${timeGreeting}, sono l'assistente virtuale di ${tenantName}. ${isLei ? "La" : "Ti"} contatto per la richiesta ricevuta. ${isLei ? "Ha" : "Hai"} un momento?`;
+
+    const { data: existingLog, error: existingLogError } = await supabase
+      .from("call_logs")
+      .select("outcome_json")
+      .eq("tenant_id", context.tenantId)
+      .eq("twilio_call_sid", callSid)
+      .maybeSingle();
+    if (existingLogError) throw existingLogError;
+    const existingOutcome = isRecord(existingLog?.outcome_json) ? existingLog.outcome_json : {};
 
     const { error: callLogError } = await supabase.from("call_logs").upsert({
       tenant_id: context.tenantId,
@@ -157,8 +166,10 @@ serve(async (request) => {
       twilio_call_sid: callSid,
       transcript: `Assistente: ${greeting}`,
       outcome_json: {
+        ...existingOutcome,
         queue_id: context.queueId,
         turn_count: 0,
+        test_mode: context.testMode,
       },
     }, { onConflict: "twilio_call_sid" });
     if (callLogError) throw callLogError;
@@ -167,14 +178,12 @@ serve(async (request) => {
       supabase,
       greeting,
       callSid,
-      typeof settings?.voice_pack_id === "string"
-        ? settings.voice_pack_id
-        : "FGY2WhTYpPnrIDTdsKH5",
+      typeof settings?.voice_pack_id === "string" ? settings.voice_pack_id : "FGY2WhTYpPnrIDTdsKH5",
     );
     const voiceElement = audioUrl
       ? `<Play>${xmlEscape(audioUrl)}</Play>`
       : `<Say language="it-IT" voice="alice">${xmlEscape(greeting)}</Say>`;
-    const actionUrl = gatherActionUrl(requiredEnv("SUPABASE_URL"), context.queueId);
+    const actionUrl = gatherActionUrl(requiredEnv("SUPABASE_URL"), context.queueId, context.testMode);
     const followUp = isLei ? "È ancora in linea?" : "Sei ancora in linea?";
     const closing = isLei
       ? "Non sento risposta. La richiameremo. Buona giornata."
@@ -250,4 +259,8 @@ async function synthesizeSpeech(
     console.error("[twilio-voice-webhook] TTS failed", error);
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
