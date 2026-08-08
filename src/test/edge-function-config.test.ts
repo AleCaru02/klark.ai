@@ -45,6 +45,7 @@ describe("configurazione Edge Functions", () => {
       "meta-leadads-webhook",
       "public-demo-request",
       "public-voice-demo",
+      "process-call-queue",
       "site-chat-bootstrap",
       "site-chat-message",
       "stripe-webhook",

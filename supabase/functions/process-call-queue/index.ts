@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
   AuthError,
+  constantTimeEqual,
   createServiceClient,
   jsonResponse,
+  requiredEnv,
   requireActiveTenant,
-  requireServiceRole,
 } from "../_shared/security.ts";
 
 interface AvailabilityWindow {
@@ -19,10 +20,21 @@ serve(async (request) => {
     return jsonResponse({ error: "Method not allowed" }, 405, { Allow: "POST" });
   }
 
+  const supabase = createServiceClient();
+  const workerId = crypto.randomUUID();
+  const startedAt = new Date().toISOString();
+
   try {
-    requireServiceRole(request);
-    const supabase = createServiceClient();
-    const workerId = crypto.randomUUID();
+    await authorizeWorkerRequest(request, supabase);
+    await recordWorkerHeartbeat(supabase, {
+      status: "running",
+      startedAt,
+      workerId,
+      error: null,
+    });
+
+    const { error: recoveryError } = await supabase.rpc("recover_stale_call_queue");
+    if (recoveryError) throw recoveryError;
 
     const { data: queueItems, error: claimError } = await supabase.rpc(
       "claim_call_queue_batch",
@@ -31,6 +43,12 @@ serve(async (request) => {
     if (claimError) throw claimError;
 
     if (!queueItems?.length) {
+      await recordWorkerHeartbeat(supabase, {
+        status: "idle",
+        startedAt,
+        workerId,
+        error: null,
+      });
       return jsonResponse({ processed: 0, successful: 0, results: [] });
     }
 
@@ -178,6 +196,13 @@ serve(async (request) => {
       }
     }
 
+    await recordWorkerHeartbeat(supabase, {
+      status: "ok",
+      startedAt,
+      workerId,
+      error: null,
+    });
+
     return jsonResponse({
       processed: results.length,
       successful: results.filter((result) => result.success).length,
@@ -186,6 +211,16 @@ serve(async (request) => {
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
     console.error("[process-call-queue] Worker failed", error);
+    if (!(error instanceof AuthError && status === 401)) {
+      await recordWorkerHeartbeat(supabase, {
+        status: "error",
+        startedAt,
+        workerId,
+        error: error instanceof Error ? error.message : String(error),
+      }).catch((heartbeatError) => {
+        console.error("[process-call-queue] Unable to record failed heartbeat", heartbeatError);
+      });
+    }
     return jsonResponse(
       { error: status === 401 ? "Unauthorized" : "Queue processing failed" },
       status,
@@ -337,3 +372,49 @@ function isWithinAvailability(
   const current = `${hour}:${minute}`;
   return current >= window.start && current <= window.end;
 }
+
+async function authorizeWorkerRequest(
+  request: Request,
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<void> {
+  const authorization = request.headers.get("Authorization") ?? "";
+  const bearer = authorization.replace(/^Bearer\s+/i, "").trim();
+  const serviceRole = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (bearer && constantTimeEqual(bearer, serviceRole)) return;
+
+  const schedulerToken = request.headers.get("x-clark-scheduler-token")?.trim() ?? "";
+  if (!schedulerToken) throw new AuthError("Unauthorized", 401);
+
+  const { data: valid, error } = await supabase.rpc("verify_call_queue_scheduler_token", {
+    p_token: schedulerToken,
+  });
+  if (error) throw error;
+  if (valid !== true) throw new AuthError("Unauthorized", 401);
+}
+
+async function recordWorkerHeartbeat(
+  supabase: ReturnType<typeof createServiceClient>,
+  input: {
+    status: "running" | "idle" | "ok" | "error";
+    startedAt: string;
+    workerId: string;
+    error: string | null;
+  },
+): Promise<void> {
+  const finishedAt = input.status === "running" ? null : new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    worker_name: "call_queue",
+    status: input.status,
+    last_started_at: input.startedAt,
+    last_worker_id: input.workerId,
+    last_error: input.error?.slice(0, 1000) ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (finishedAt) {
+    payload.last_finished_at = finishedAt;
+    if (input.status === "ok" || input.status === "idle") payload.last_success_at = finishedAt;
+  }
+  const { error } = await supabase.from("worker_heartbeats").upsert(payload, { onConflict: "worker_name" });
+  if (error) throw error;
+}
+
