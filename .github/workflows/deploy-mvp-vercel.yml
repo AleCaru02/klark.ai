@@ -1,0 +1,84 @@
+name: Deploy MVP Vercel Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact main commit SHA approved for production"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mvp-vercel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_M6fYd90idkyQEw1ba5tc8WwS
+      VERCEL_PROJECT_ID: prj_vOrjz5xpVJKZ9SLLLxduGnsVuyNR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact approved commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "${{ inputs.expected_sha }}" ]; then
+            echo "Refusing production deploy: main is $actual_sha, expected ${{ inputs.expected_sha }}"
+            exit 1
+          fi
+          test -n "$VERCEL_TOKEN" || { echo "Missing VERCEL_TOKEN"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies and Vercel CLI
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --global vercel@latest
+
+      - name: Pull production project configuration
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build exact main commit
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy prebuilt artifact with Git commit metadata
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(vercel deploy --prebuilt --prod \
+            --meta githubCommitSha="$GITHUB_SHA" \
+            --meta githubCommitRef=main \
+            --token="$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Production URL: $url"
+
+      - name: Verify deployment is READY and tied to the approved SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          vercel inspect "${{ steps.deploy.outputs.url }}" --wait --token="$VERCEL_TOKEN"
+          vercel ls clerkai-preview-alecaru02 \
+            --meta githubCommitSha="$GITHUB_SHA" \
+            --token="$VERCEL_TOKEN" | tee /tmp/vercel-by-sha.txt
+          grep -F "$GITHUB_SHA" /tmp/vercel-by-sha.txt >/dev/null || \
+            grep -F "${GITHUB_SHA:0:7}" /tmp/vercel-by-sha.txt >/dev/null || {
+              echo "Deployment lookup did not expose the expected SHA"
+              exit 1
+            }
