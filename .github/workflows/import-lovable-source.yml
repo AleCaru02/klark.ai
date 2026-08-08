@@ -1,0 +1,55 @@
+name: Import Lovable Source
+
+on:
+  push:
+    branches:
+      - recovery/lovable-source
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          ref: recovery/lovable-source
+          fetch-depth: 0
+
+      - name: Download recovered source artifact
+        env:
+          ARTIFACT_URL: 'https://sdmntprukwest.oaiusercontent.com/files/00000000-a04c-8243-98cd-61b0c18e61c7/raw?se=2026-08-08T14%3A06%3A17Z&sp=r&sv=2026-02-06&sr=b&scid=4d833849-ab31-5f37-a3e7-6cd12b2c0c5c&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-08T08%3A43%3A34Z&ske=2026-08-09T08%3A43%3A34Z&sks=b&skv=2026-02-06&sig=ch0Ku9Cut%2BJ3%2BhvJg11jRpYvAYkn0Ahg/Mfs7Vk/3DU%3D'
+        run: |
+          set -euo pipefail
+          curl -fL "$ARTIFACT_URL" -o /tmp/clerkai-artifact.zip
+          mkdir -p /tmp/outer /tmp/source
+          unzip -q /tmp/clerkai-artifact.zip -d /tmp/outer
+          if [ -f /tmp/outer/clerkai-source.zip ]; then
+            unzip -q /tmp/outer/clerkai-source.zip -d /tmp/source
+          else
+            cp -a /tmp/outer/. /tmp/source/
+          fi
+          test -f /tmp/source/package.json
+          test -d /tmp/source/src
+          test -d /tmp/source/supabase/functions
+          test -d /tmp/source/supabase/migrations
+
+      - name: Replace target with recovered source
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude='.git/' /tmp/source/ ./
+          rm -f .github/workflows/export-source.yml
+          rm -f .github/workflows/import-lovable-source.yml
+
+      - name: Commit recovered source
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'recovery: import complete Lovable source snapshot 3027dcf'
+          git push origin HEAD:recovery/lovable-source
