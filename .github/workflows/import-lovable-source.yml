@@ -21,7 +21,7 @@ jobs:
 
       - name: Download recovered source artifact
         env:
-          ARTIFACT_URL: 'https://sdmntprukwest.oaiusercontent.com/files/00000000-a04c-8243-98cd-61b0c18e61c7/raw?se=2026-08-08T14%3A06%3A17Z&sp=r&sv=2026-02-06&sr=b&scid=4d833849-ab31-5f37-a3e7-6cd12b2c0c5c&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-08T08%3A43%3A34Z&ske=2026-08-09T08%3A43%3A34Z&sks=b&skv=2026-02-06&sig=ch0Ku9Cut%2BJ3%2BhvJg11jRpYvAYkn0Ahg/Mfs7Vk/3DU%3D'
+          ARTIFACT_URL: 'https://sdmntpreastus.oaiusercontent.com/files/00000000-0ea4-81f9-bdc2-a1f772b5efc1/raw?se=2026-08-08T14%3A09%3A28Z&sp=r&sv=2026-02-06&sr=b&scid=c10804cb-8968-54fe-8ddb-b6547e3a446b&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-08T08%3A43%3A31Z&ske=2026-08-09T08%3A43%3A31Z&sks=b&skv=2026-02-06&sig=IK9wn4Vp5wesNVW2zgIsveaPs1c8ZhE8as7uuQL74io%3D'
         run: |
           set -euo pipefail
           curl -fL "$ARTIFACT_URL" -o /tmp/clerkai-artifact.zip
@@ -37,12 +37,13 @@ jobs:
           test -d /tmp/source/supabase/functions
           test -d /tmp/source/supabase/migrations
 
-      - name: Replace target with recovered source
+      - name: Replace target with recovered source except workflows
         run: |
           set -euo pipefail
-          rsync -a --delete --exclude='.git/' /tmp/source/ ./
-          rm -f .github/workflows/export-source.yml
-          rm -f .github/workflows/import-lovable-source.yml
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/workflows/' \
+            /tmp/source/ ./
 
       - name: Commit recovered source
         run: |
@@ -51,5 +52,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git diff --cached --quiet && exit 0
-          git commit -m 'recovery: import complete Lovable source snapshot 3027dcf'
+          git commit -m 'recovery: import Lovable source snapshot 3027dcf excluding workflows'
           git push origin HEAD:recovery/lovable-source
