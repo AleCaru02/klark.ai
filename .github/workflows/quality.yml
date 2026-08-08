@@ -124,6 +124,15 @@ jobs:
         run: supabase start -x studio,imgproxy,mailpit,logflare,vector,supavisor
       - name: Reset database and replay every migration
         run: supabase db reset --local --no-seed
+      - name: Run database integrity tests
+        run: |
+          DB_URL=$(supabase status -o env | sed -n 's/^DB_URL=//p' | tr -d '"')
+          test -n "$DB_URL"
+          for sql in supabase/tests/*.sql; do
+            [ -f "$sql" ] || continue
+            docker run --rm --network host -v "$PWD:/workspace" -w /workspace postgres:17-alpine \
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$sql"
+          done
       - name: Verify critical MVP schema exists
         run: |
           DB_URL=$(supabase status -o env | sed -n 's/^DB_URL=//p' | tr -d '"')
