@@ -1,0 +1,138 @@
+name: Deploy MVP Supabase Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact main commit SHA approved for candidate deploy"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mvp-supabase-candidate
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ipazbzctivqquwndifxh
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      APP_URL: https://clerkai-preview-alecaru02.vercel.app
+      ALLOWED_ORIGINS: https://www.clerkai.it,https://clerkai.it
+      AUTH_REDIRECTS: https://clerkai-preview-alecaru02.vercel.app/**,https://www.clerkai.it/**,https://clerkai.it/**
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify exact approved commit and fixed candidate target
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "${{ inputs.expected_sha }}" || {
+            echo "Refusing candidate deploy: main is $actual_sha, expected ${{ inputs.expected_sha }}"
+            exit 1
+          }
+          test "$PROJECT_REF" = "ipazbzctivqquwndifxh"
+
+      - name: Require candidate deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo "Missing SUPABASE_ACCESS_TOKEN"; exit 1; }
+          test -n "$OPENAI_API_KEY" || { echo "Missing OPENAI_API_KEY"; exit 1; }
+          test -n "$GOOGLE_CLIENT_ID" || { echo "Missing GOOGLE_CLIENT_ID"; exit 1; }
+          test -n "$GOOGLE_CLIENT_SECRET" || { echo "Missing GOOGLE_CLIENT_SECRET"; exit 1; }
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Keep Auth assisted-onboarding only
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(jq -cn --arg site "$APP_URL" --arg redirects "$AUTH_REDIRECTS" '{disable_signup:true,site_url:$site,uri_allow_list:$redirects}')
+          curl -fsS -X PATCH "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data "$payload" >/dev/null
+          cfg="$RUNNER_TEMP/auth-config.json"
+          curl -fsS "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" > "$cfg"
+          test "$(jq -r '.disable_signup' "$cfg")" = "true"
+          test "$(jq -r '.site_url' "$cfg")" = "$APP_URL"
+          test "$(jq -r '.uri_allow_list' "$cfg")" = "$AUTH_REDIRECTS"
+          rm -f "$cfg"
+
+      - name: Link and apply versioned migrations to candidate only
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '\n' | supabase link --project-ref "$PROJECT_REF"
+          supabase db push --dry-run --linked --include-all
+          supabase db push --linked --include-all --yes
+
+      - name: Update server-only provider secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/candidate-provider-secrets.env"
+          trap 'rm -f "$f"' EXIT
+          umask 077
+          {
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+            printf 'APP_URL=%s\n' "$APP_URL"
+            printf 'ALLOWED_ORIGINS=%s\n' "$ALLOWED_ORIGINS"
+          } > "$f"
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$f" >/dev/null
+          rm -f "$f"
+          trap - EXIT
+
+      - name: Deploy assisted onboarding
+        run: supabase functions deploy create-user --project-ref "$PROJECT_REF"
+
+      - name: Deploy Voice code without activating Voice or cron
+        shell: bash
+        run: |
+          set -euo pipefail
+          for fn in twilio-make-call twilio-voice-webhook twilio-voice-gather twilio-call-status process-call-queue; do
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done
+
+      - name: Deploy public chatbot
+        shell: bash
+        run: |
+          set -euo pipefail
+          for fn in site-chat-bootstrap site-chat-message; do
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done
+
+      - name: Deploy Google Calendar runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          for fn in google-auth-start google-auth-callback ai-book-appointment google-calendar-sync calendar-watch; do
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done
+
+      - name: Verify fail-closed scheduler state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Candidate deploy does not configure call_queue_project_url or schedule process-call-queue."
+
+      - name: List deployed functions for audit trail
+        run: supabase functions list --project-ref "$PROJECT_REF"
