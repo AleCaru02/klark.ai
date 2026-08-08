@@ -4,16 +4,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserPlus, Mail, Building, CreditCard, Key, Copy, Check, Loader2, AlertTriangle } from "lucide-react";
+import { Building, Check, Copy, Key, Loader2, Mail, PackageCheck, ShieldCheck, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { defaultPlanCode, plans, type PlanCode } from "@/config/plans";
+import { plans, type PlanCode } from "@/config/plans";
+
+const DEFAULT_MVP_PLAN: PlanCode = "essential";
 
 export default function CreateUser() {
   const [email, setEmail] = useState("");
   const [studioName, setStudioName] = useState("");
-  const [plan, setPlan] = useState<PlanCode>(defaultPlanCode);
-  const [stripeCustomerId, setStripeCustomerId] = useState("");
+  const [plan, setPlan] = useState<PlanCode>(DEFAULT_MVP_PLAN);
   const [generatedPassword, setGeneratedPassword] = useState("");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,26 +48,24 @@ export default function CreateUser() {
           email,
           studio_name: studioName,
           plan_code: plan,
-          stripe_customer_id: stripeCustomerId || null,
           password: generatedPassword,
           send_email: true,
         },
       });
 
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
+      if (data?.error) throw new Error(data.error);
 
       toast({
-        title: "Cliente creato",
-        description: data.email_sent
-          ? `Account creato per ${email}. È stato inviato il link personale per impostare la password.`
+        title: "Cliente creato in stato pending",
+        description: data?.email_sent
+          ? `Account creato per ${email}. Il cliente riceverà il link personale per impostare la password.`
           : `Account creato per ${email}. Email non inviata: verifica Resend prima di consegnare l'accesso.`,
       });
 
       setEmail("");
       setStudioName("");
-      setPlan(defaultPlanCode);
-      setStripeCustomerId("");
+      setPlan(DEFAULT_MVP_PLAN);
       setGeneratedPassword("");
     } catch (error) {
       console.error("Error creating user:", error);
@@ -84,25 +83,24 @@ export default function CreateUser() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold mb-1">Crea nuovo cliente</h1>
-        <p className="text-muted-foreground">Crea tenant e accesso solo dopo verifica commerciale e del pagamento.</p>
+        <p className="text-muted-foreground">Pagamento e fatturazione vengono verificati manualmente fuori da ClerkAI.</p>
       </div>
 
-      {!import.meta.env.VITE_STRIPE_LIVE_VERIFIED && (
-        <Card className="border-amber-500/40 bg-amber-500/5">
-          <CardContent className="pt-6 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-sm text-muted-foreground">
-              Stripe live non è verificato. Controlla manualmente contratto e pagamento prima di creare un abbonamento attivo.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      <Card className="border-blue-500/30 bg-blue-500/5">
+        <CardContent className="pt-6 flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+          <div className="text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Attivazione assistita</p>
+            <p>Il nuovo tenant nasce in stato <strong>pending</strong>. I servizi restano bloccati finché configurazione e collaudo non sono stati approvati dall'amministratore.</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><UserPlus className="w-5 h-5" /> Informazioni cliente</CardTitle>
-            <CardDescription>Email, organizzazione e piano devono coincidere con il riepilogo approvato.</CardDescription>
+            <CardDescription>Email, organizzazione e piano devono coincidere con il riepilogo commerciale approvato.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
@@ -116,7 +114,7 @@ export default function CreateUser() {
             </div>
 
             <div className="space-y-2">
-              <Label className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Piano</Label>
+              <Label className="flex items-center gap-2"><PackageCheck className="w-4 h-4" /> Piano assegnato</Label>
               <Select value={plan} onValueChange={(value) => setPlan(value as PlanCode)} disabled={loading}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -127,12 +125,7 @@ export default function CreateUser() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="stripeId">Stripe Customer ID</Label>
-              <Input id="stripeId" placeholder="cus_xxxxxxxxxx" value={stripeCustomerId} onChange={(event) => setStripeCustomerId(event.target.value)} className="font-mono" disabled={loading} />
-              <p className="text-xs text-muted-foreground">Lascialo vuoto soltanto durante un pilota approvato e non fatturato.</p>
+              <p className="text-xs text-muted-foreground">L'assegnazione è amministrativa e non crea alcun abbonamento o pagamento automatico.</p>
             </div>
 
             <div className="space-y-2">
@@ -151,7 +144,7 @@ export default function CreateUser() {
 
             <div className="flex gap-3 pt-4 border-t">
               <Button type="submit" className="flex-1" disabled={!generatedPassword || loading}>
-                {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creazione in corso…</> : <><UserPlus className="w-4 h-4 mr-2" />Crea account</>}
+                {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creazione in corso…</> : <><UserPlus className="w-4 h-4 mr-2" />Crea tenant pending</>}
               </Button>
             </div>
           </CardContent>
@@ -162,11 +155,11 @@ export default function CreateUser() {
         <CardHeader><CardTitle className="text-lg">Controlli prima della creazione</CardTitle></CardHeader>
         <CardContent>
           <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-            <li>Verifica piano, importo trimestrale e attivazione nel contratto.</li>
-            <li>Verifica il pagamento Stripe o l'autorizzazione esplicita al pilota.</li>
+            <li>Verifica manualmente contratto, piano e pagamento/fatturazione esterni.</li>
             <li>Crea il tenant con l'email definitiva del cliente.</li>
             <li>Controlla l'invio del link password tramite Resend.</li>
-            <li>Completa Automation Studio e Test Center prima del go-live.</li>
+            <li>Completa configurazione, knowledge, Voice, Calendar e test obbligatori.</li>
+            <li>Attiva il tenant solo dopo il collaudo richiesto.</li>
           </ol>
         </CardContent>
       </Card>

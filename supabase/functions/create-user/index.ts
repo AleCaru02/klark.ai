@@ -40,13 +40,12 @@ serve(async (request) => {
       email?: string;
       studio_name?: string;
       plan_code?: string;
-      stripe_customer_id?: string | null;
       password?: string;
       send_email?: boolean;
     };
     const email = normalizeEmail(body.email);
     const studioName = body.studio_name?.trim().slice(0, 160) || "";
-    const planCode = body.plan_code?.trim() || "growth";
+    const planCode = body.plan_code?.trim() || "essential";
     const password = body.password || "";
     const sendEmail = body.send_email !== false;
 
@@ -123,23 +122,17 @@ serve(async (request) => {
     if (tenantError) throw tenantError;
     createdTenantId = tenant.id;
 
-    const periodStart = new Date();
-    const periodEnd = new Date(periodStart);
-    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 3);
-
     const operations = await Promise.all([
       supabase.from("memberships").insert({
         user_id: createdUserId,
         tenant_id: createdTenantId,
         role: "customer",
       }),
-      supabase.from("subscriptions").insert({
+      supabase.from("tenant_service_accounts").insert({
         tenant_id: createdTenantId,
         plan_code: planCode,
-        stripe_customer_id: body.stripe_customer_id || null,
-        status: "active",
-        period_start: periodStart.toISOString(),
-        period_end: periodEnd.toISOString(),
+        status: "pending",
+        updated_by: caller.userId,
       }),
       supabase.from("settings").insert({
         tenant_id: createdTenantId,
@@ -147,7 +140,6 @@ serve(async (request) => {
           onboarding_step: 1,
           production_readiness_approved: false,
           e2e_verified: false,
-          stripe_live_verified: false,
         },
       }),
     ]);
@@ -162,7 +154,8 @@ serve(async (request) => {
         user_id: createdUserId,
         plan_code: planCode,
         existing_auth_user: !createdNewUser,
-        stripe_customer_id_present: Boolean(body.stripe_customer_id),
+        service_status: "pending",
+        billing_mode: "manual_external",
         production_ready: false,
       },
     });
@@ -182,6 +175,7 @@ serve(async (request) => {
         existing_auth_user: !createdNewUser,
         password_was_emailed: false,
         production_ready: false,
+        service_status: "pending",
       },
       201,
       corsHeaders,

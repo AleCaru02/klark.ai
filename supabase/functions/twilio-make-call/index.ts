@@ -5,6 +5,7 @@ import {
   createServiceClient,
   jsonResponse,
   requiredEnv,
+  requireActiveTenant,
   requireUserTenant,
 } from "../_shared/security.ts";
 
@@ -49,6 +50,8 @@ serve(async (request) => {
         throw new AuthError("Cross-tenant call denied", 403);
       }
     }
+
+    await requireActiveTenant(supabase, body.tenant_id);
 
     const twilioAccountSid = requiredEnv("TWILIO_ACCOUNT_SID");
     const twilioAuthToken = requiredEnv("TWILIO_AUTH_TOKEN");

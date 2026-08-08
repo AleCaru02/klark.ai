@@ -27,9 +27,10 @@ interface DailyWa {
 }
 
 const planLabels: Record<string, string> = {
-  voice_start: "Voice Start",
-  combo_start: "Combo Start",
-  combo_pro: "Combo Pro",
+  essential: "Essential",
+  growth: "Growth",
+  pro: "Pro",
+  enterprise: "Enterprise",
 };
 
 export default function Usage() {
@@ -41,7 +42,7 @@ export default function Usage() {
   const [voiceData, setVoiceData] = useState<DailyVoice[]>([]);
   const [waData, setWaData] = useState<DailyWa[]>([]);
   const [appointmentsCount, setAppointmentsCount] = useState(0);
-  const [subscriptions, setSubscriptions] = useState<{ tenant_id: string; plan_code: string; status: string }[]>([]);
+  const [serviceAccounts, setServiceAccounts] = useState<{ tenant_id: string; plan_code: string; status: string }[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -55,14 +56,14 @@ export default function Usage() {
         supabase.from("usage_voice_daily").select("date, connected_seconds, tenant_id").gte("date", startDate),
         supabase.from("usage_wa_daily").select("date, tenant_id").gte("date", startDate),
         supabase.from("appointments").select("id", { count: "exact", head: true }),
-        supabase.from("subscriptions").select("tenant_id, plan_code, status"),
+        supabase.from("tenant_service_accounts").select("tenant_id, plan_code, status"),
       ]);
 
       setTenants((tenantsRes.data || []) as TenantInfo[]);
       setVoiceData((voiceRes.data || []) as DailyVoice[]);
       setWaData((waRes.data || []) as DailyWa[]);
       setAppointmentsCount(apptRes.count || 0);
-      setSubscriptions((subsRes.data || []) as { tenant_id: string; plan_code: string; status: string }[]);
+      setServiceAccounts((subsRes.data || []) as { tenant_id: string; plan_code: string; status: string }[]);
       setLoading(false);
     }
     load();
@@ -102,7 +103,7 @@ export default function Usage() {
   const planDistribution = useMemo(() => {
     const counts: Record<string, number> = {};
     const seen = new Set<string>();
-    subscriptions.forEach((s) => {
+    serviceAccounts.forEach((s) => {
       if (seen.has(s.tenant_id)) return;
       seen.add(s.tenant_id);
       const plan = s.plan_code || "unknown";
@@ -114,7 +115,7 @@ export default function Usage() {
       value,
       color: colors[i % colors.length],
     }));
-  }, [subscriptions]);
+  }, [serviceAccounts]);
 
   // Top tenants
   const topTenants = useMemo(() => {
@@ -133,7 +134,7 @@ export default function Usage() {
     return Array.from(map.entries())
       .map(([tid, usage]) => {
         const t = tenants.find((x) => x.id === tid);
-        const sub = subscriptions.find((s) => s.tenant_id === tid);
+        const sub = serviceAccounts.find((s) => s.tenant_id === tid);
         return {
           id: tid,
           name: t?.name || tid.slice(0, 8),
@@ -144,7 +145,7 @@ export default function Usage() {
       })
       .sort((a, b) => b.voiceMin - a.voiceMin)
       .slice(0, 10);
-  }, [voiceData, waData, tenants, subscriptions]);
+  }, [voiceData, waData, tenants, serviceAccounts]);
 
   if (loading) {
     return (

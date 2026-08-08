@@ -82,15 +82,15 @@ export default function AppOverview() {
 
       const totalVoiceSeconds = (voiceData || []).reduce((sum, row) => sum + (row.connected_seconds || 0), 0);
 
-      const { data: subscription } = await supabase
-        .from("subscriptions").select("plan_code")
-        .eq("tenant_id", tenantId).eq("status", "active").single();
+      const { data: serviceAccount } = await supabase
+        .from("tenant_service_accounts").select("plan_code,status")
+        .eq("tenant_id", tenantId).maybeSingle();
 
       let includedMinutes = 200;
-      if (subscription?.plan_code) {
+      if (serviceAccount?.status === "active" && serviceAccount.plan_code) {
         const { data: plan } = await supabase.from("plans")
           .select("included_connected_seconds_per_quarter")
-          .eq("code", subscription.plan_code).single();
+          .eq("code", serviceAccount.plan_code).single();
         if (plan) includedMinutes = Math.ceil(plan.included_connected_seconds_per_quarter / 60);
       }
 

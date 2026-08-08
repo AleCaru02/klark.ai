@@ -9,7 +9,6 @@ import {
   Bot,
   Building2,
   Calendar,
-  CreditCard,
   FileCheck2,
   FileText,
   Kanban,
@@ -48,7 +47,6 @@ const navItems = [
   { to: "/app/tests", icon: TestTube, label: "Test Center" },
   { to: "/app/integrations", icon: Puzzle, label: "Integrazioni" },
   { to: "/app/pipeline-config", icon: Settings, label: "Pipeline CRM" },
-  { to: "/app/billing", icon: CreditCard, label: "Fatturazione" },
   { to: "/app/referral", icon: Users, label: "Referral Network" },
   { to: "/app/settings", icon: Building2, label: "Impostazioni" },
 ];

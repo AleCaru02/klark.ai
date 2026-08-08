@@ -6,15 +6,18 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  ArrowLeft, Phone, MessageCircle, Calendar, CreditCard,
-  Settings, Save, Trash2, AlertTriangle, Loader2, Users, Mail, Globe,
+  ArrowLeft, Phone, MessageCircle, Calendar, ClipboardList,
+  Settings, Save, Trash2, AlertTriangle, Loader2, Users, Mail,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth } from "date-fns";
+import { plans, type PlanCode } from "@/config/plans";
 
 interface TenantData {
   id: string;
@@ -30,14 +33,18 @@ interface TenantProfile {
   created_at: string;
 }
 
-interface TenantSubscription {
-  plan_code: string;
-  status: string;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  period_start: string | null;
-  period_end: string | null;
+interface TenantServiceAccount {
+  tenant_id: string;
+  plan_code: PlanCode;
+  status: "pending" | "active" | "suspended" | "cancelled";
+  activated_at: string | null;
+  service_end_at: string | null;
+  renewal_due_at: string | null;
+  next_payment_at: string | null;
+  admin_notes: string | null;
+  updated_at: string;
 }
+
 
 interface TenantPhoneNumber {
   id: string;
@@ -65,7 +72,7 @@ export default function TenantDetail() {
 
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [profiles, setProfiles] = useState<TenantProfile[]>([]);
-  const [subscription, setSubscription] = useState<TenantSubscription | null>(null);
+  const [serviceAccount, setServiceAccount] = useState<TenantServiceAccount | null>(null);
   const [phoneNumbers, setPhoneNumbers] = useState<TenantPhoneNumber[]>([]);
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [stats, setStats] = useState({ voiceMin: 0, waMessages: 0, appointments: 0 });
@@ -77,10 +84,10 @@ export default function TenantDetail() {
     if (!id) return;
     setLoading(true);
 
-    const [tenantRes, profilesRes, subsRes, phonesRes, settingsRes] = await Promise.all([
+    const [tenantRes, profilesRes, serviceRes, phonesRes, settingsRes] = await Promise.all([
       supabase.from("tenants").select("*").eq("id", id).single(),
       supabase.from("profiles").select("*").eq("tenant_id", id),
-      supabase.from("subscriptions").select("*").eq("tenant_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("tenant_service_accounts").select("*").eq("tenant_id", id).maybeSingle(),
       supabase.from("tenant_phone_numbers").select("*").eq("tenant_id", id),
       supabase.from("settings").select("voice_enabled, whatsapp_enabled, calendar_enabled, recording_opt_in, retention_days, voice_number, whatsapp_display_number").eq("tenant_id", id).maybeSingle(),
     ]);
@@ -90,7 +97,7 @@ export default function TenantDetail() {
       setEditName(tenantRes.data.name);
     }
     if (profilesRes.data) setProfiles(profilesRes.data as TenantProfile[]);
-    if (subsRes.data) setSubscription(subsRes.data as TenantSubscription);
+    if (serviceRes.data) setServiceAccount(serviceRes.data as TenantServiceAccount);
     if (phonesRes.data) setPhoneNumbers(phonesRes.data as TenantPhoneNumber[]);
     if (settingsRes.data) setSettings(settingsRes.data as TenantSettings);
 
@@ -142,10 +149,51 @@ export default function TenantDetail() {
     if (error) toast.error("Errore"); else toast.success("Impostazioni salvate");
   };
 
+  const handleSaveServiceAccount = async () => {
+    if (!id || !serviceAccount) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from("tenant_service_accounts")
+      .update({
+        plan_code: serviceAccount.plan_code,
+        status: serviceAccount.status,
+        service_end_at: serviceAccount.service_end_at || null,
+        renewal_due_at: serviceAccount.renewal_due_at || null,
+        next_payment_at: serviceAccount.next_payment_at || null,
+        admin_notes: serviceAccount.admin_notes?.trim() || null,
+      })
+      .eq("tenant_id", id);
+    setSaving(false);
+    if (error) {
+      toast.error(`Errore stato cliente: ${error.message}`);
+      return;
+    }
+    toast.success("Stato cliente aggiornato");
+    await fetchData();
+  };
+
+  const toLocalDateTimeValue = (value: string | null) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const offsetMs = date.getTimezoneOffset() * 60_000;
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  };
+
+  const fromLocalDateTimeValue = (value: string) => value ? new Date(value).toISOString() : null;
+
   const planLabels: Record<string, string> = {
-    voice_start: "Voice Start",
-    combo_start: "Combo Start",
-    combo_pro: "Combo Pro",
+    essential: "Essential",
+    growth: "Growth",
+    pro: "Pro",
+    enterprise: "Enterprise",
+  };
+
+  const serviceStatusLabels: Record<TenantServiceAccount["status"], string> = {
+    pending: "Pending",
+    active: "Attivo",
+    suspended: "Sospeso",
+    cancelled: "Cancellato",
   };
 
   if (loading) {
@@ -177,9 +225,9 @@ export default function TenantDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{tenant.name}</h1>
-            {subscription && (
-              <Badge variant={subscription.status === "active" ? "default" : "destructive"}>
-                {subscription.status === "active" ? "Attivo" : subscription.status}
+            {serviceAccount && (
+              <Badge variant={serviceAccount.status === "active" ? "default" : serviceAccount.status === "pending" ? "secondary" : "destructive"}>
+                {serviceStatusLabels[serviceAccount.status]}
               </Badge>
             )}
           </div>
@@ -192,7 +240,7 @@ export default function TenantDetail() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users">Utenti ({profiles.length})</TabsTrigger>
           <TabsTrigger value="numbers">Numeri ({phoneNumbers.length})</TabsTrigger>
-          <TabsTrigger value="billing">Fatturazione</TabsTrigger>
+          <TabsTrigger value="commercial">Commerciale</TabsTrigger>
           <TabsTrigger value="settings">Impostazioni</TabsTrigger>
         </TabsList>
 
@@ -254,7 +302,7 @@ export default function TenantDetail() {
                 </div>
                 <div className="space-y-2">
                   <Label>Piano</Label>
-                  <Input value={planLabels[subscription?.plan_code || ""] || subscription?.plan_code || "-"} readOnly className="bg-muted" />
+                  <Input value={planLabels[serviceAccount?.plan_code || ""] || serviceAccount?.plan_code || "-"} readOnly className="bg-muted" />
                 </div>
                 <div className="space-y-2">
                   <Label>Creato il</Label>
@@ -386,35 +434,77 @@ export default function TenantDetail() {
           </div>
         </TabsContent>
 
-        {/* Billing Tab */}
-        <TabsContent value="billing" className="space-y-6">
+        {/* Commercial / service state */}
+        <TabsContent value="commercial" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5" />Stripe</CardTitle>
+              <CardTitle className="flex items-center gap-2"><ClipboardList className="w-5 h-5" />Stato cliente</CardTitle>
+              <CardDescription>Gestione amministrativa manuale della Fase 1. Non rappresenta una subscription di un provider di pagamento.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Customer ID</Label>
-                  <Input value={subscription?.stripe_customer_id || "-"} readOnly className="font-mono bg-muted" />
+            <CardContent className="space-y-5">
+              {!serviceAccount ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  Stato cliente non configurato. Il tenant resta non operativo.
                 </div>
-                <div className="space-y-2">
-                  <Label>Subscription ID</Label>
-                  <Input value={subscription?.stripe_subscription_id || "-"} readOnly className="font-mono bg-muted" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Piano</Label>
-                  <Input value={planLabels[subscription?.plan_code || ""] || "-"} readOnly className="bg-muted" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Stato</Label>
-                  <Input value={subscription?.status || "-"} readOnly className="bg-muted" />
-                </div>
-              </div>
-              {subscription?.period_start && subscription?.period_end && (
-                <p className="text-sm text-muted-foreground">
-                  Periodo: {new Date(subscription.period_start).toLocaleDateString("it-IT")} — {new Date(subscription.period_end).toLocaleDateString("it-IT")}
-                </p>
+              ) : (
+                <>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Piano assegnato</Label>
+                      <Select
+                        value={serviceAccount.plan_code}
+                        onValueChange={(value) => setServiceAccount((prev) => prev ? { ...prev, plan_code: value as PlanCode } : prev)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {plans.map((plan) => <SelectItem key={plan.code} value={plan.code}>{plan.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Stato cliente</Label>
+                      <Select
+                        value={serviceAccount.status}
+                        onValueChange={(value) => setServiceAccount((prev) => prev ? { ...prev, status: value as TenantServiceAccount["status"] } : prev)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="active">Attivo</SelectItem>
+                          <SelectItem value="suspended">Sospeso</SelectItem>
+                          <SelectItem value="cancelled">Cancellato</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Attivato il</Label>
+                      <Input value={serviceAccount.activated_at ? new Date(serviceAccount.activated_at).toLocaleString("it-IT") : "Non ancora attivo"} readOnly className="bg-muted" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Fine servizio</Label>
+                      <Input type="datetime-local" value={toLocalDateTimeValue(serviceAccount.service_end_at)} onChange={(event) => setServiceAccount((prev) => prev ? { ...prev, service_end_at: fromLocalDateTimeValue(event.target.value) } : prev)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Scadenza / rinnovo</Label>
+                      <Input type="datetime-local" value={toLocalDateTimeValue(serviceAccount.renewal_due_at)} onChange={(event) => setServiceAccount((prev) => prev ? { ...prev, renewal_due_at: fromLocalDateTimeValue(event.target.value) } : prev)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Prossimo pagamento</Label>
+                      <Input type="datetime-local" value={toLocalDateTimeValue(serviceAccount.next_payment_at)} onChange={(event) => setServiceAccount((prev) => prev ? { ...prev, next_payment_at: fromLocalDateTimeValue(event.target.value) } : prev)} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Note amministrative</Label>
+                    <Textarea rows={5} value={serviceAccount.admin_notes || ""} onChange={(event) => setServiceAccount((prev) => prev ? { ...prev, admin_notes: event.target.value } : prev)} placeholder="Contratto, pagamento manuale, scadenze, note operative…" />
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                    Gli stati pending, suspended e cancelled bloccano le operazioni runtime protette. Il passaggio ad active sarà ulteriormente vincolato alla checklist di readiness prima del go-live.
+                  </div>
+                  <Button onClick={handleSaveServiceAccount} disabled={saving}>
+                    {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    Salva stato cliente
+                  </Button>
+                </>
               )}
             </CardContent>
           </Card>

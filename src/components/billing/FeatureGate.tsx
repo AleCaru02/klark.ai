@@ -1,58 +1,49 @@
 import { ReactNode } from "react";
-import { Lock, ArrowUpRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Loader2, Lock } from "lucide-react";
 import { usePlanFeatures, FeatureFlags } from "@/hooks/usePlanFeatures";
-import { Link } from "react-router-dom";
 
 interface FeatureGateProps {
-  /** The feature flag key to check */
   feature: keyof FeatureFlags;
-  /** Title shown when locked */
   title: string;
-  /** Description of what this feature does */
   description: string;
-  /** The content to render when feature is enabled */
   children: ReactNode;
 }
 
 export function FeatureGate({ feature, title, description, children }: FeatureGateProps) {
-  const { hasFeature, getUpgradePlan, planName, loading } = usePlanFeatures();
+  const { hasFeature, planName, serviceStatus, loading } = usePlanFeatures();
 
-  if (loading) return <>{children}</>;
-
-  if (hasFeature(feature)) {
-    return <>{children}</>;
+  if (loading) {
+    return (
+      <div className="min-h-40 rounded-2xl border bg-muted/20 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Verifica autorizzazioni in corso…
+        </div>
+      </div>
+    );
   }
 
-  const upgradeTo = getUpgradePlan(feature);
+  if (hasFeature(feature)) return <>{children}</>;
+
+  const inactive = serviceStatus && serviceStatus !== "active";
 
   return (
     <div className="space-y-6">
-      {/* Locked overlay card */}
       <div className="relative rounded-2xl border-2 border-dashed border-border bg-muted/30 p-8 md:p-12 text-center">
         <div className="mx-auto max-w-md space-y-4">
           <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mx-auto">
             <Lock className="w-7 h-7 text-muted-foreground" />
           </div>
-
           <div>
-            <h2 className="text-xl font-bold mb-2">{title}</h2>
+            <h2 className="text-xl font-bold mb-2">{inactive ? "Servizio non attivo" : title}</h2>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              {description}
+              {inactive
+                ? `Stato amministrativo: ${serviceStatus}. L'operatività viene abilitata dall'amministratore ClerkAI dopo configurazione e collaudo.`
+                : description}
             </p>
           </div>
-
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted text-xs font-medium text-muted-foreground">
-            Non incluso nel piano {planName || "attuale"}
-          </div>
-
-          <div>
-            <Button asChild>
-              <Link to="/app/billing">
-                Passa a {upgradeTo}
-                <ArrowUpRight className="w-4 h-4 ml-1.5" />
-              </Link>
-            </Button>
+            {inactive ? `Account ${serviceStatus}` : `Non incluso nel piano ${planName || "assegnato"}`}
           </div>
         </div>
       </div>

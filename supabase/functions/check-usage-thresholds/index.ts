@@ -5,11 +5,9 @@ import {
   requireServiceRole,
 } from "../_shared/security.ts";
 
-interface SubscriptionRow {
+interface ServiceAccountRow {
   tenant_id: string;
   plan_code: string;
-  period_start: string | null;
-  period_end: string | null;
 }
 
 interface PlanRow {
@@ -56,15 +54,11 @@ function currentQuarter(): { start: Date; end: Date } {
   return { start, end };
 }
 
-function resolvePeriod(subscription: SubscriptionRow): { start: Date; end: Date; key: string } {
-  const fallback = currentQuarter();
-  const start = subscription.period_start ? new Date(subscription.period_start) : fallback.start;
-  const end = subscription.period_end ? new Date(subscription.period_end) : fallback.end;
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-    throw new Error("Invalid subscription period");
-  }
-  return { start, end, key: start.toISOString().slice(0, 10) };
+function resolvePeriod(): { start: Date; end: Date; key: string } {
+  const period = currentQuarter();
+  return { start: period.start, end: period.end, key: period.start.toISOString().slice(0, 10) };
 }
+
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") {
@@ -74,19 +68,19 @@ Deno.serve(async (request) => {
   try {
     requireServiceRole(request);
     const client = createServiceClient();
-    const { data: subscriptionData, error: subscriptionError } = await client
-      .from("subscriptions")
-      .select("tenant_id,plan_code,period_start,period_end")
+    const { data: serviceAccountData, error: serviceAccountError } = await client
+      .from("tenant_service_accounts")
+      .select("tenant_id,plan_code")
       .eq("status", "active");
-    if (subscriptionError) throw subscriptionError;
+    if (serviceAccountError) throw serviceAccountError;
 
     let checked = 0;
     let alertsCreated = 0;
     let failures = 0;
 
-    for (const subscription of (subscriptionData ?? []) as SubscriptionRow[]) {
+    for (const serviceAccount of (serviceAccountData ?? []) as ServiceAccountRow[]) {
       try {
-        const period = resolvePeriod(subscription);
+        const period = resolvePeriod();
         const startDate = period.start.toISOString().slice(0, 10);
         const endExclusive = period.end.toISOString().slice(0, 10);
 
@@ -94,24 +88,24 @@ Deno.serve(async (request) => {
           client
             .from("plans")
             .select("included_connected_seconds_per_quarter,included_wa_templates_per_quarter,warning_thresholds")
-            .eq("code", subscription.plan_code)
+            .eq("code", serviceAccount.plan_code)
             .maybeSingle(),
           client
             .from("usage_voice_daily")
             .select("connected_seconds")
-            .eq("tenant_id", subscription.tenant_id)
+            .eq("tenant_id", serviceAccount.tenant_id)
             .gte("date", startDate)
             .lt("date", endExclusive),
           client
             .from("usage_wa_daily")
             .select("template_counts_json")
-            .eq("tenant_id", subscription.tenant_id)
+            .eq("tenant_id", serviceAccount.tenant_id)
             .gte("date", startDate)
             .lt("date", endExclusive),
           client
             .from("usage_alerts")
             .select("resource,threshold_percent")
-            .eq("tenant_id", subscription.tenant_id)
+            .eq("tenant_id", serviceAccount.tenant_id)
             .eq("period_month", period.key),
         ]);
         if (planResult.error) throw planResult.error;
@@ -158,7 +152,7 @@ Deno.serve(async (request) => {
           for (const threshold of thresholds) {
             if (percent < threshold || existing.has(`${resource.key}:${threshold}`)) continue;
             pendingAlerts.push({
-              tenant_id: subscription.tenant_id,
+              tenant_id: serviceAccount.tenant_id,
               resource: resource.key,
               threshold_percent: threshold,
               alert_type: threshold >= 100 ? "overage_active" : `threshold_${threshold}`,
@@ -180,7 +174,7 @@ Deno.serve(async (request) => {
         checked += 1;
       } catch {
         failures += 1;
-        console.error("Usage threshold check failed for one subscription");
+        console.error("Usage threshold check failed for one tenant service account");
       }
     }
 

@@ -3,6 +3,7 @@ import {
   AuthError,
   createServiceClient,
   jsonResponse,
+  requireActiveTenant,
   requireServiceRole,
 } from "../_shared/security.ts";
 
@@ -37,6 +38,19 @@ serve(async (request) => {
 
     for (const item of queueItems as any[]) {
       try {
+        try {
+          await requireActiveTenant(supabase, item.tenant_id);
+        } catch (error) {
+          await failQueueItem(
+            supabase,
+            item,
+            "tenant_not_active",
+            error instanceof Error ? error.message : "Tenant service is not active",
+          );
+          results.push({ queue_id: item.id, success: false, error: "Tenant not active" });
+          continue;
+        }
+
         if (Number(item.attempt_count ?? 0) >= Number(item.max_attempts ?? 0)) {
           await failQueueItem(supabase, item, "max_attempts_reached", "Raggiunto limite massimo tentativi");
           await moveContactToStageType(

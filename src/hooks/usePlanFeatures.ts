@@ -24,6 +24,8 @@ export interface FeatureFlags {
   max_users: number;
 }
 
+export type TenantServiceStatus = "pending" | "active" | "suspended" | "cancelled";
+
 const DEFAULT_FLAGS: FeatureFlags = {
   voice_enabled: false,
   calendar_enabled: false,
@@ -51,6 +53,7 @@ export function usePlanFeatures() {
   const [flags, setFlags] = useState<FeatureFlags>(DEFAULT_FLAGS);
   const [planName, setPlanName] = useState<string>("");
   const [planCode, setPlanCode] = useState<string>("");
+  const [serviceStatus, setServiceStatus] = useState<TenantServiceStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const tenantId = membership?.tenant_id;
@@ -62,35 +65,47 @@ export function usePlanFeatures() {
 
   const fetchFlags = async () => {
     if (!tenantId) return;
+    setLoading(true);
+    setFlags(DEFAULT_FLAGS);
+    setPlanName("");
+    setPlanCode("");
+    setServiceStatus(null);
+
     try {
-      const { data: sub } = await supabase
-        .from("subscriptions")
-        .select("plan_code")
+      const { data: account, error: accountError } = await supabase
+        .from("tenant_service_accounts")
+        .select("plan_code,status,service_end_at")
         .eq("tenant_id", tenantId)
-        .eq("status", "active")
         .maybeSingle();
 
-      if (!sub) {
-        setLoading(false);
-        return;
-      }
+      if (accountError) throw accountError;
+      if (!account) return;
 
-      const { data: plan } = await supabase
+      const status = account.status as TenantServiceStatus;
+      setServiceStatus(status);
+      setPlanCode(account.plan_code);
+
+      const expired = account.service_end_at
+        ? new Date(account.service_end_at).getTime() <= Date.now()
+        : false;
+      if (status !== "active" || expired) return;
+
+      const { data: plan, error: planError } = await supabase
         .from("plans")
         .select("name, code, feature_flags")
-        .eq("code", sub.plan_code)
+        .eq("code", account.plan_code)
         .single();
+      if (planError) throw planError;
 
-      if (plan) {
-        setPlanName(plan.name);
-        setPlanCode(plan.code);
-        const ff = (plan as any).feature_flags as Record<string, unknown>;
-        if (ff && typeof ff === "object") {
-          setFlags({ ...DEFAULT_FLAGS, ...ff } as FeatureFlags);
-        }
+      setPlanName(plan.name);
+      setPlanCode(plan.code);
+      const featureFlags = plan.feature_flags as Record<string, unknown> | null;
+      if (featureFlags && typeof featureFlags === "object") {
+        setFlags({ ...DEFAULT_FLAGS, ...featureFlags } as FeatureFlags);
       }
-    } catch (err) {
-      console.error("Error fetching plan features:", err);
+    } catch (error) {
+      console.error("Error fetching tenant service features:", error);
+      setFlags(DEFAULT_FLAGS);
     } finally {
       setLoading(false);
     }
@@ -98,29 +113,20 @@ export function usePlanFeatures() {
 
   const hasFeature = (flag: keyof FeatureFlags): boolean => {
     if (isAdmin) return true;
+    if (serviceStatus !== "active") return false;
     return Boolean(flags[flag]);
   };
 
-  const getUpgradePlan = (flag: keyof FeatureFlags): string => {
-    const growthFlags: (keyof FeatureFlags)[] = [
-      "whatsapp_enabled",
-      "crm_basic_enabled",
-      "followup_basic_enabled",
-      "site_chat_enabled",
-    ];
-    const proFlags: (keyof FeatureFlags)[] = [
-      "crm_advanced_enabled",
-      "followup_advanced_enabled",
-      "ads_enabled",
-      "ai_training_advanced_enabled",
-      "analytics_advanced_enabled",
-      "integrations_enabled",
-    ];
+  const getUpgradePlan = (_flag: keyof FeatureFlags): string => "piano assegnato";
 
-    if (proFlags.includes(flag)) return "Pro";
-    if (growthFlags.includes(flag)) return "Growth";
-    return "Growth";
+  return {
+    flags,
+    planName,
+    planCode,
+    serviceStatus,
+    loading,
+    hasFeature,
+    getUpgradePlan,
+    refresh: fetchFlags,
   };
-
-  return { flags, planName, planCode, loading, hasFeature, getUpgradePlan };
 }

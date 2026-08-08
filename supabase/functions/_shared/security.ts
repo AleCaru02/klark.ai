@@ -116,6 +116,43 @@ export function requireServiceRole(request: Request): void {
   }
 }
 
+export interface TenantServiceAccount {
+  tenantId: string;
+  planCode: string;
+  status: "pending" | "active" | "suspended" | "cancelled";
+  activatedAt: string | null;
+  serviceEndAt: string | null;
+}
+
+export async function requireActiveTenant(
+  client: ServiceClient,
+  tenantId: string,
+): Promise<TenantServiceAccount> {
+  if (!tenantId) throw new AuthError("Tenant ID is required", 400);
+
+  const { data, error } = await client
+    .from("tenant_service_accounts")
+    .select("tenant_id,plan_code,status,activated_at,service_end_at")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new AuthError("Tenant service account is not configured", 403);
+
+  const serviceEndAt = data.service_end_at as string | null;
+  const expired = serviceEndAt ? new Date(serviceEndAt).getTime() <= Date.now() : false;
+  if (data.status !== "active" || expired) {
+    throw new AuthError("Tenant service is not active", 403);
+  }
+
+  return {
+    tenantId: data.tenant_id as string,
+    planCode: data.plan_code as string,
+    status: data.status as TenantServiceAccount["status"],
+    activatedAt: data.activated_at as string | null,
+    serviceEndAt,
+  };
+}
+
 export async function registerProviderEvent(
   client: ServiceClient,
   provider: string,

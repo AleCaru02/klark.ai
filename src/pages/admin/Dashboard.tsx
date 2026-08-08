@@ -17,20 +17,22 @@ interface Tenant {
   name: string;
   email: string;
   plan: string;
-  status: "active" | "trial" | "suspended";
+  status: "pending" | "active" | "suspended" | "cancelled";
   createdAt: string;
 }
 
 const planLabels: Record<string, string> = {
-  voice_start: "Voice Start",
-  combo_start: "Combo Start",
-  combo_pro: "Combo Pro",
+  essential: "Essential",
+  growth: "Growth",
+  pro: "Pro",
+  enterprise: "Enterprise",
 };
 
 const statusLabels: Record<string, string> = {
+  pending: "Pending",
   active: "Attivo",
-  trial: "Trial",
   suspended: "Sospeso",
+  cancelled: "Cancellato",
 };
 
 export default function AdminDashboard() {
@@ -49,7 +51,7 @@ export default function AdminDashboard() {
   const fetchTenants = async () => {
     setLoading(true);
     try {
-      // Fetch tenants with their subscriptions
+      // Fetch tenants with their internal service state
       const { data: tenantsData, error } = await supabase
         .from("tenants")
         .select("id, name, created_at")
@@ -57,17 +59,18 @@ export default function AdminDashboard() {
 
       if (error) throw error;
 
-      // Fetch subscriptions and profiles for each tenant
-      const [subsRes, profilesRes] = await Promise.all([
-        supabase.from("subscriptions").select("tenant_id, plan_code, status"),
+      // Fetch internal service state and profiles for each tenant
+      const [serviceRes, profilesRes] = await Promise.all([
+        supabase.from("tenant_service_accounts").select("tenant_id, plan_code, status"),
         supabase.from("profiles").select("tenant_id, email"),
       ]);
 
-      const subsMap = new Map<string, { plan_code: string; status: string }>();
-      (subsRes.data || []).forEach((s) => {
-        if (!subsMap.has(s.tenant_id) || s.status === "active") {
-          subsMap.set(s.tenant_id, { plan_code: s.plan_code, status: s.status });
-        }
+      const serviceMap = new Map<string, { plan_code: string; status: Tenant["status"] }>();
+      (serviceRes.data || []).forEach((account) => {
+        serviceMap.set(account.tenant_id, {
+          plan_code: account.plan_code,
+          status: account.status as Tenant["status"],
+        });
       });
 
       const emailMap = new Map<string, string>();
@@ -78,13 +81,13 @@ export default function AdminDashboard() {
       });
 
       const mapped: Tenant[] = (tenantsData || []).map((t) => {
-        const sub = subsMap.get(t.id);
+        const account = serviceMap.get(t.id);
         return {
           id: t.id,
           name: t.name,
           email: emailMap.get(t.id) || "-",
-          plan: sub?.plan_code || "combo_start",
-          status: (sub?.status === "active" ? "active" : sub?.status === "trialing" ? "trial" : "suspended") as Tenant["status"],
+          plan: account?.plan_code || "essential",
+          status: account?.status || "pending",
           createdAt: t.created_at,
         };
       });
@@ -111,9 +114,9 @@ export default function AdminDashboard() {
 
   const confirmSuspend = async () => {
     if (!selectedTenant) return;
-    const newStatus = selectedTenant.status === "suspended" ? "active" : "canceled";
+    const newStatus: Tenant["status"] = selectedTenant.status === "suspended" ? "pending" : "suspended";
     const { error } = await supabase
-      .from("subscriptions")
+      .from("tenant_service_accounts")
       .update({ status: newStatus })
       .eq("tenant_id", selectedTenant.id);
 
@@ -121,7 +124,7 @@ export default function AdminDashboard() {
       toast({ title: "Errore", description: error.message, variant: "destructive" });
     } else {
       toast({
-        title: selectedTenant.status === "suspended" ? "Tenant riattivato" : "Tenant sospeso",
+        title: selectedTenant.status === "suspended" ? "Tenant riportato in pending" : "Tenant sospeso",
         description: `${selectedTenant.name} aggiornato con successo`,
       });
       fetchTenants();
@@ -131,8 +134,8 @@ export default function AdminDashboard() {
   };
 
   const activeTenants = tenants.filter((t) => t.status === "active").length;
-  const trialTenants = tenants.filter((t) => t.status === "trial").length;
-  const suspendedTenants = tenants.filter((t) => t.status === "suspended").length;
+  const pendingTenants = tenants.filter((t) => t.status === "pending").length;
+  const suspendedTenants = tenants.filter((t) => t.status === "suspended" || t.status === "cancelled").length;
 
   if (loading) {
     return (
@@ -193,8 +196,8 @@ export default function AdminDashboard() {
                 <Users className="w-5 h-5 text-warning" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{trialTenants}</p>
-                <p className="text-sm text-muted-foreground">Trial</p>
+                <p className="text-2xl font-bold">{pendingTenants}</p>
+                <p className="text-sm text-muted-foreground">Pending</p>
               </div>
             </div>
           </CardContent>
@@ -229,7 +232,8 @@ export default function AdminDashboard() {
               <SelectContent>
                 <SelectItem value="all">Tutti gli stati</SelectItem>
                 <SelectItem value="active">Attivi</SelectItem>
-                <SelectItem value="trial">Trial</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="cancelled">Cancellati</SelectItem>
                 <SelectItem value="suspended">Sospesi</SelectItem>
               </SelectContent>
             </Select>
@@ -262,7 +266,7 @@ export default function AdminDashboard() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold">{tenant.name}</p>
                         <Badge variant="secondary">{planLabels[tenant.plan] || tenant.plan}</Badge>
-                        <Badge variant={tenant.status === "active" ? "default" : tenant.status === "trial" ? "secondary" : "destructive"}>
+                        <Badge variant={tenant.status === "active" ? "default" : tenant.status === "pending" ? "secondary" : "destructive"}>
                           {statusLabels[tenant.status]}
                         </Badge>
                       </div>
@@ -284,7 +288,7 @@ export default function AdminDashboard() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => handleSuspend(tenant)}
                           className={tenant.status === "suspended" ? "text-success" : "text-destructive"}>
-                          {tenant.status === "suspended" ? <><Play className="w-4 h-4 mr-2" />Riattiva</> : <><Ban className="w-4 h-4 mr-2" />Sospendi</>}
+                          {tenant.status === "suspended" ? <><Play className="w-4 h-4 mr-2" />Porta in pending</> : <><Ban className="w-4 h-4 mr-2" />Sospendi</>}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -300,17 +304,17 @@ export default function AdminDashboard() {
       <Dialog open={suspendDialogOpen} onOpenChange={setSuspendDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{selectedTenant?.status === "suspended" ? "Riattiva Tenant" : "Sospendi Tenant"}</DialogTitle>
+            <DialogTitle>{selectedTenant?.status === "suspended" ? "Ripristina Tenant" : "Sospendi Tenant"}</DialogTitle>
             <DialogDescription>
               {selectedTenant?.status === "suspended"
-                ? `Riattivare "${selectedTenant?.name}"?`
+                ? `Riportare "${selectedTenant?.name}" in pending? L’attivazione richiederà il collaudo.`
                 : `Sospendere "${selectedTenant?.name}"? I servizi verranno disattivati.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSuspendDialogOpen(false)}>Annulla</Button>
             <Button variant={selectedTenant?.status === "suspended" ? "default" : "destructive"} onClick={confirmSuspend}>
-              {selectedTenant?.status === "suspended" ? "Riattiva" : "Sospendi"}
+              {selectedTenant?.status === "suspended" ? "Porta in pending" : "Sospendi"}
             </Button>
           </DialogFooter>
         </DialogContent>
