@@ -20,7 +20,7 @@ jobs:
       - name: Apply chatbot provider patch
         run: |
           set -euo pipefail
-          base64 -d .recovery/chatbot.patch.b64 | gzip -d > /tmp/chatbot.patch
+          sed 's/=$//' .recovery/chatbot.patch.b64 | base64 -d | gzip -d > /tmp/chatbot.patch
           git apply -p1 --check /tmp/chatbot.patch
           git apply -p1 /tmp/chatbot.patch
           rm -rf .recovery
