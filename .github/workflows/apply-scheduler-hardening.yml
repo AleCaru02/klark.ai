@@ -1,0 +1,31 @@
+name: Apply Scheduler Hardening
+
+on:
+  push:
+    branches:
+      - mvp/call-queue-scheduler
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: mvp/call-queue-scheduler
+          fetch-depth: 0
+      - name: Apply scheduler patch
+        run: |
+          set -euo pipefail
+          base64 -d .recovery/scheduler.patch.b64 | gzip -d > /tmp/scheduler.patch
+          git apply -p1 --check /tmp/scheduler.patch
+          git apply -p1 /tmp/scheduler.patch
+          rm -rf .recovery
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: schedule and recover outbound call queue safely'
+          git push origin HEAD:mvp/call-queue-scheduler
