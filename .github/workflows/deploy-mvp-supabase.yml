@@ -24,6 +24,8 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      APP_URL: https://www.clerkai.it
+      ALLOWED_ORIGINS: https://clerkai-preview-alecaru02.vercel.app
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,6 +66,8 @@ jobs:
             printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
             printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
             printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+            printf 'APP_URL=%s\n' "$APP_URL"
+            printf 'ALLOWED_ORIGINS=%s\n' "$ALLOWED_ORIGINS"
           } > "$secrets_file"
           supabase secrets set --project-ref "$PROJECT_REF" --env-file "$secrets_file"
           rm -f "$secrets_file"
