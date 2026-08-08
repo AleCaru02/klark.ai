@@ -1,0 +1,1 @@
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS auto_call_on_lead boolean DEFAULT false;

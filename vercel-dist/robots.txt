@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /admin
+Disallow: /login
+Disallow: /checkout
+Disallow: /forgot-password
+Disallow: /reset-password
+
+Sitemap: https://www.clerkai.it/sitemap.xml

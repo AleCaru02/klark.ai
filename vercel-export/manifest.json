@@ -1,0 +1,10 @@
+{
+  "name": "ClerkAI — Segretaria AI",
+  "short_name": "ClerkAI",
+  "description": "Segretaria AI per chiamate, agenda e WhatsApp con flussi configurabili, controlli e storico delle azioni.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#7c3aed"
+}

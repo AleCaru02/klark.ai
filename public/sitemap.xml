@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/sitemap/0.9">
+  <url><loc>https://www.clerkai.it/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://www.clerkai.it/analisi-flusso</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.clerkai.it/demo-operativa</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.clerkai.it/carta-servizio</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/presentazione</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/tecnologia</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://www.clerkai.it/pricing</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.clerkai.it/settori/studi-professionali</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/settori/studi-sanitari</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/settori/gestione-immobiliare</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/settori/ristoranti</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/settori/hotel-strutture-ricettive</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/settori/centri-estetici-parrucchieri</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/settori/agenzie-immobiliari</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.clerkai.it/privacy</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://www.clerkai.it/terms</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://www.clerkai.it/cookies</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+</urlset>

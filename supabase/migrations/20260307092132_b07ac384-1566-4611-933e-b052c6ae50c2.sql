@@ -1,0 +1,1 @@
+ALTER TABLE public.facebook_integrations ADD COLUMN IF NOT EXISTS user_access_token text;

@@ -1,0 +1,197 @@
+project_id = "weufeilkdzimmmgskobs"
+
+# Endpoint provider e callback OAuth: il gateway non può richiedere un JWT
+# Supabase perché i provider esterni non ne possiedono uno. Questi endpoint
+# applicano firme crittografiche, token di verifica o state OAuth monouso.
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.meta-leadads-webhook]
+verify_jwt = false
+
+[functions.facebook-webhook-tenant]
+verify_jwt = false
+
+[functions.twilio-call-status]
+verify_jwt = false
+
+[functions.twilio-voice-webhook]
+verify_jwt = false
+
+[functions.twilio-voice-gather]
+verify_jwt = false
+
+[functions.calendar-watch]
+verify_jwt = false
+
+[functions.google-auth-callback]
+verify_jwt = false
+
+[functions.meta-leadads-auth-callback]
+verify_jwt = false
+
+[functions.whatsapp-auth-callback]
+verify_jwt = false
+
+# Demo pubblica: accetta soltanto clip predefinite, limita le origini e
+# restituisce audio cacheato in Storage. Nessun testo arbitrario.
+[functions.public-voice-demo]
+verify_jwt = false
+
+# Richiesta demo pubblica: validazione server-side, allowlist origin,
+# honeypot, rate limit e scrittura service-role su tabella RLS isolata.
+[functions.public-demo-request]
+verify_jwt = false
+
+# Widget pubblico: nessun JWT Supabase viene esposto al sito del cliente.
+# Chiave widget revocabile, allowlist origin, sessione firmata e rate limiting
+# vengono verificati dentro le funzioni.
+[functions.site-chat-bootstrap]
+verify_jwt = false
+
+[functions.site-chat-message]
+verify_jwt = false
+
+# Bootstrap usa un segreto costante, confronto constant-time e controllo
+# monouso della piattaforma. Va disabilitato o ruotato dopo il bootstrap.
+[functions.bootstrap-admin]
+verify_jwt = false
+
+# Funzioni interne o invocate dal browser autenticato: JWT obbligatorio.
+[functions.admin-demo-requests]
+verify_jwt = true
+
+[functions.aggregate-usage]
+verify_jwt = true
+
+[functions.ai-book-appointment]
+verify_jwt = true
+
+[functions.ai-next-best-action]
+verify_jwt = true
+
+[functions.ai-summary]
+verify_jwt = true
+
+[functions.calendar-events]
+verify_jwt = true
+
+[functions.calendar-watch-register]
+verify_jwt = true
+
+[functions.check-usage-thresholds]
+verify_jwt = true
+
+[functions.crawl-website]
+verify_jwt = true
+
+[functions.create-appointment]
+verify_jwt = true
+
+[functions.create-user]
+verify_jwt = true
+
+[functions.elevenlabs-tts-preview]
+verify_jwt = true
+
+[functions.followup-mark-outcome]
+verify_jwt = true
+
+[functions.followup-run]
+verify_jwt = true
+
+[functions.generate-call-recap]
+verify_jwt = true
+
+[functions.google-auth-disconnect]
+verify_jwt = true
+
+[functions.google-auth-start]
+verify_jwt = true
+
+[functions.google-calendar-cancel]
+verify_jwt = true
+
+[functions.google-calendar-create]
+verify_jwt = true
+
+[functions.google-calendar-import]
+verify_jwt = true
+
+[functions.google-calendar-reschedule]
+verify_jwt = true
+
+[functions.google-calendar-sync]
+verify_jwt = true
+
+[functions.google-calendars]
+verify_jwt = true
+
+[functions.meta-leadads-auth-start]
+verify_jwt = true
+
+[functions.meta-leadads-disconnect]
+verify_jwt = true
+
+[functions.meta-leadads-pages]
+verify_jwt = true
+
+[functions.meta-leadads-pull]
+verify_jwt = true
+
+[functions.meta-leadads-select-page]
+verify_jwt = true
+
+[functions.meta-leadads-status]
+verify_jwt = true
+
+[functions.parse-pdf]
+verify_jwt = true
+
+[functions.ping]
+verify_jwt = true
+
+[functions.process-call-queue]
+verify_jwt = true
+
+[functions.process-reminders]
+verify_jwt = true
+
+[functions.report-usage]
+verify_jwt = true
+
+[functions.retention-cleanup]
+verify_jwt = true
+
+[functions.send-whatsapp]
+verify_jwt = true
+
+[functions.twilio-make-call]
+verify_jwt = true
+
+[functions.voice-audio-url]
+verify_jwt = true
+
+[functions.whatsapp-auth-start]
+verify_jwt = true
+
+[functions.whatsapp-create-template]
+verify_jwt = true
+
+[functions.whatsapp-disconnect]
+verify_jwt = true
+
+[functions.whatsapp-simulate-inbound]
+verify_jwt = true
+
+[functions.zoom-create-meeting]
+verify_jwt = true
+
+[functions.zoom-delete-meeting]
+verify_jwt = true
+
+[functions.zoom-update-meeting]
+verify_jwt = true
