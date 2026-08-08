@@ -1,0 +1,1 @@
+DELETE FROM public.google_tokens WHERE tenant_id IN ('8e01a79e-6737-4027-902c-6e0f7b1568cd', '226baa2c-63fe-491e-a890-fc33ea8cf70b');

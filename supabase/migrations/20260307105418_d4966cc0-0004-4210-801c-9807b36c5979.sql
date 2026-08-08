@@ -1,0 +1,1 @@
+ALTER TABLE public.settings ADD COLUMN crm_tabs_json jsonb DEFAULT '[{"id":"facebook","label":"Contatti Facebook","stage":"FB_INBOX"},{"id":"appointments","label":"Sopralluoghi / Google Meet","stage":"APPOINTMENTS"},{"id":"to_recall","label":"Lead da richiamare","stage":"CALL_LATER"},{"id":"closed","label":"Contratti chiusi","stage":"CLOSED"}]'::jsonb;
