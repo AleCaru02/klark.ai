@@ -65,26 +65,70 @@ serve(async (request) => {
 
         const { data: settings, error: settingsError } = await supabase
           .from("settings")
-          .select("caller_id_e164,availability_json,timezone")
+          .select("voice_enabled,voice_runtime_verified,availability_json,timezone")
           .eq("tenant_id", item.tenant_id)
           .maybeSingle();
         if (settingsError) throw settingsError;
 
-        if (!settings?.caller_id_e164) {
-          const { data: phoneNumber, error: phoneError } = await supabase
-            .from("tenant_phone_numbers")
-            .select("id")
-            .eq("tenant_id", item.tenant_id)
-            .eq("phone_type", "voice")
-            .eq("status", "active")
-            .limit(1)
-            .maybeSingle();
-          if (phoneError) throw phoneError;
-          if (!phoneNumber) {
-            await failQueueItem(supabase, item, "voice_number_missing", "Nessun numero Voice attivo per questo tenant");
-            results.push({ queue_id: item.id, success: false, error: "No voice number" });
-            continue;
-          }
+        if (settings?.voice_enabled !== true || settings?.voice_runtime_verified !== true) {
+          await cancelQueueItem(
+            supabase,
+            item,
+            "voice_runtime_not_ready",
+            "Voice non abilitato o runtime non verificato per il tenant.",
+          );
+          results.push({ queue_id: item.id, success: false, error: "Voice runtime not ready" });
+          continue;
+        }
+
+        const { data: phoneNumber, error: phoneError } = await supabase
+          .from("tenant_phone_numbers")
+          .select("id")
+          .eq("tenant_id", item.tenant_id)
+          .eq("phone_type", "voice")
+          .eq("status", "active")
+          .eq("provider_status", "verified")
+          .eq("regulatory_status", "approved")
+          .not("regulatory_verified_at", "is", null)
+          .limit(1)
+          .maybeSingle();
+        if (phoneError) throw phoneError;
+        if (!phoneNumber) {
+          await cancelQueueItem(supabase, item, "voice_number_missing", "Nessun numero Voice italiano conforme e attivo per questo tenant.");
+          results.push({ queue_id: item.id, success: false, error: "No compliant voice number" });
+          continue;
+        }
+
+        const { data: contactPermission, error: permissionError } = await supabase
+          .from("contacts")
+          .select("do_not_contact,callback_requested,callback_requested_at,contact_permission_source")
+          .eq("tenant_id", item.tenant_id)
+          .eq("id", item.contact_id)
+          .maybeSingle();
+        if (permissionError) throw permissionError;
+        if (!contactPermission) {
+          await cancelQueueItem(supabase, item, "contact_missing", "Contatto non trovato nel tenant.");
+          results.push({ queue_id: item.id, success: false, error: "Contact missing" });
+          continue;
+        }
+        if (contactPermission.do_not_contact === true) {
+          await cancelQueueItem(supabase, item, "do_not_contact", "Contatto escluso: do_not_contact attivo.");
+          results.push({ queue_id: item.id, success: false, error: "Do not contact" });
+          continue;
+        }
+        const callbackAllowed = contactPermission.callback_requested === true &&
+          Boolean(contactPermission.callback_requested_at) &&
+          typeof contactPermission.contact_permission_source === "string" &&
+          contactPermission.contact_permission_source.trim().length > 0;
+        if (!callbackAllowed) {
+          await cancelQueueItem(
+            supabase,
+            item,
+            "contact_permission_missing",
+            "Richiesta di ricontatto non verificata: chiamata automatica bloccata.",
+          );
+          results.push({ queue_id: item.id, success: false, error: "Callback permission missing" });
+          continue;
         }
 
         const availability = settings?.availability_json as Availability | null;
@@ -181,6 +225,27 @@ async function scheduleRetry(
     .eq("tenant_id", item.tenant_id)
     .eq("worker_id", workerId);
   if (error) console.error("Unable to schedule queue retry", error);
+}
+
+async function cancelQueueItem(
+  supabase: any,
+  item: any,
+  errorCode: string,
+  notes: string,
+) {
+  const { error } = await supabase
+    .from("call_queue")
+    .update({
+      status: "cancelled",
+      locked_at: null,
+      worker_id: null,
+      last_error_code: errorCode,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", item.id)
+    .eq("tenant_id", item.tenant_id);
+  if (error) throw error;
 }
 
 async function failQueueItem(

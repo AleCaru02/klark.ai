@@ -1,10 +1,75 @@
-import type { ServiceClient } from "./security.ts";
+import {
+  requireActiveTenant,
+  type ServiceClient,
+} from "./security.ts";
 
 export interface TwilioCallContext {
   tenantId: string;
   contactId: string | null;
   queueId: string | null;
   direction: string;
+  callSid: string;
+  testMode: boolean;
+}
+
+interface CachedTwilioToken {
+  token: string;
+  expiresAt: number;
+}
+
+const subaccountTokenCache = new Map<string, CachedTwilioToken>();
+const SUBACCOUNT_TOKEN_CACHE_MS = 5 * 60 * 1000;
+
+export async function resolveTwilioWebhookAuthToken(
+  supabase: ServiceClient,
+  form: URLSearchParams,
+): Promise<string | null> {
+  const accountSid = (form.get("AccountSid") ?? "").trim();
+  const parentAccountSid = (Deno.env.get("TWILIO_ACCOUNT_SID") ?? "").trim();
+  const parentAuthToken = (Deno.env.get("TWILIO_AUTH_TOKEN") ?? "").trim();
+  if (!accountSid || !parentAccountSid || !parentAuthToken) return null;
+
+  if (accountSid === parentAccountSid) return parentAuthToken;
+  if (!/^AC[0-9A-Fa-f]{32}$/.test(accountSid)) return null;
+
+  const { data: tenantPhone, error: tenantPhoneError } = await supabase
+    .from("tenant_phone_numbers")
+    .select("id")
+    .eq("phone_type", "voice")
+    .eq("twilio_subaccount_sid", accountSid)
+    .limit(1)
+    .maybeSingle();
+  if (tenantPhoneError) throw tenantPhoneError;
+  if (!tenantPhone) return null;
+
+  const cached = subaccountTokenCache.get(accountSid);
+  if (cached && cached.expiresAt > Date.now()) return cached.token;
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${btoa(`${parentAccountSid}:${parentAuthToken}`)}`,
+      },
+    },
+  );
+  if (!response.ok) {
+    console.error("[twilio-voice] Unable to resolve subaccount auth token", {
+      account_sid: accountSid,
+      status: response.status,
+    });
+    return null;
+  }
+
+  const payload = await response.json() as { auth_token?: string };
+  const token = typeof payload.auth_token === "string" ? payload.auth_token.trim() : "";
+  if (!token) return null;
+  subaccountTokenCache.set(accountSid, {
+    token,
+    expiresAt: Date.now() + SUBACCOUNT_TOKEN_CACHE_MS,
+  });
+  return token;
 }
 
 export async function resolveExistingTwilioContext(
@@ -15,6 +80,7 @@ export async function resolveExistingTwilioContext(
   const requestedQueueId = requestUrl.searchParams.get("queue_id");
   const requestedTenantId = requestUrl.searchParams.get("tenant_id");
   const requestedContactId = requestUrl.searchParams.get("contact_id");
+  const requestedTestMode = requestUrl.searchParams.get("test_mode") === "1";
 
   if (requestedQueueId) {
     const { data: queue, error } = await supabase
@@ -33,29 +99,57 @@ export async function resolveExistingTwilioContext(
       contactId: queue.contact_id as string,
       queueId: queue.id as string,
       direction: "outbound",
+      callSid,
+      testMode: false,
     };
   }
 
   const { data: callLog, error } = await supabase
     .from("call_logs")
-    .select("tenant_id,contact_id,direction")
+    .select("tenant_id,contact_id,direction,outcome_json")
     .eq("twilio_call_sid", callSid)
     .maybeSingle();
   if (error) throw error;
-  if (!callLog?.tenant_id) return null;
-  if (requestedTenantId && requestedTenantId !== callLog.tenant_id) return null;
-  if (
-    requestedContactId &&
-    callLog.contact_id &&
-    requestedContactId !== callLog.contact_id
-  ) return null;
+  if (callLog?.tenant_id) {
+    if (requestedTenantId && requestedTenantId !== callLog.tenant_id) return null;
+    if (
+      requestedContactId &&
+      callLog.contact_id &&
+      requestedContactId !== callLog.contact_id
+    ) return null;
+    const outcome = isRecord(callLog.outcome_json) ? callLog.outcome_json : {};
+    return {
+      tenantId: callLog.tenant_id as string,
+      contactId: (callLog.contact_id as string | null) ?? null,
+      queueId: null,
+      direction: (callLog.direction as string | null) ?? "unknown",
+      callSid,
+      testMode: outcome.test_mode === true,
+    };
+  }
 
-  return {
-    tenantId: callLog.tenant_id as string,
-    contactId: (callLog.contact_id as string | null) ?? null,
-    queueId: null,
-    direction: (callLog.direction as string | null) ?? "unknown",
-  };
+  // The first Twilio webhook can race the call-log insert. The URL is signed by
+  // Twilio, so the tenant/contact values can be used after verifying membership.
+  if (requestedTenantId && requestedContactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("tenant_id", requestedTenantId)
+      .eq("id", requestedContactId)
+      .maybeSingle();
+    if (contactError) throw contactError;
+    if (!contact) return null;
+    return {
+      tenantId: requestedTenantId,
+      contactId: requestedContactId,
+      queueId: null,
+      direction: "outbound",
+      callSid,
+      testMode: requestedTestMode,
+    };
+  }
+
+  return null;
 }
 
 export async function resolveInboundTwilioContext(
@@ -66,15 +160,39 @@ export async function resolveInboundTwilioContext(
 ): Promise<TwilioCallContext | null> {
   const { data: phoneNumber, error: phoneError } = await supabase
     .from("tenant_phone_numbers")
-    .select("tenant_id")
+    .select("tenant_id,status,provider_status,regulatory_status,regulatory_verified_at")
     .eq("phone_number", to)
     .eq("phone_type", "voice")
-    .eq("status", "active")
+    .eq("provider_status", "verified")
+    .in("status", ["pending", "active"])
     .maybeSingle();
   if (phoneError) throw phoneError;
   if (!phoneNumber?.tenant_id) return null;
+  if (phoneNumber.regulatory_status !== "approved" || !phoneNumber.regulatory_verified_at) {
+    return null;
+  }
 
   const tenantId = phoneNumber.tenant_id as string;
+  try {
+    await requireActiveTenant(supabase, tenantId);
+  } catch {
+    return null;
+  }
+
+  const { data: settings, error: settingsError } = await supabase
+    .from("settings")
+    .select("voice_enabled,voice_runtime_verified,voice_test_mode")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (settingsError) throw settingsError;
+
+  const testMode = phoneNumber.status !== "active";
+  if (testMode) {
+    if (settings?.voice_test_mode !== true) return null;
+  } else if (settings?.voice_enabled !== true || settings?.voice_runtime_verified !== true) {
+    return null;
+  }
+
   const normalizedFrom = normalizeE164(from);
   if (!normalizedFrom) return null;
 
@@ -130,10 +248,21 @@ export async function resolveInboundTwilioContext(
     contact_id: contactId,
     direction: "inbound",
     twilio_call_sid: callSid,
+    outcome_json: {
+      test_mode: testMode,
+      recording_requested: false,
+    },
   }, { onConflict: "twilio_call_sid" });
   if (callLogError) throw callLogError;
 
-  return { tenantId, contactId, queueId: null, direction: "inbound" };
+  return {
+    tenantId,
+    contactId,
+    queueId: null,
+    direction: "inbound",
+    callSid,
+    testMode,
+  };
 }
 
 export function xmlEscape(value: unknown): string {
@@ -162,9 +291,11 @@ export function twimlResponse(body: string, status = 200): Response {
 export function gatherActionUrl(
   supabaseUrl: string,
   queueId: string | null,
+  testMode = false,
 ): string {
   const url = new URL(`${supabaseUrl}/functions/v1/twilio-voice-gather`);
   if (queueId) url.searchParams.set("queue_id", queueId);
+  if (testMode) url.searchParams.set("test_mode", "1");
   return xmlEscape(url.toString());
 }
 
@@ -172,4 +303,8 @@ function normalizeE164(value: string): string | null {
   const digits = value.replace(/\D/g, "");
   if (digits.length < 8 || digits.length > 15) return null;
   return `+${digits}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
