@@ -9,6 +9,7 @@ describe("CRM MVP integrity", () => {
   const logs = read("src/pages/app/Logs.tsx");
   const callStatus = read("supabase/functions/twilio-call-status/index.ts");
   const voiceContext = read("supabase/functions/_shared/twilio-voice.ts");
+  const voiceWebhook = read("supabase/functions/twilio-voice-webhook/index.ts");
   const booking = read("supabase/functions/ai-book-appointment/index.ts");
   const storageMigration = read("supabase/migrations/20260808210000_voice_audio_storage_hardening.sql");
 
@@ -47,6 +48,7 @@ describe("CRM MVP integrity", () => {
   it("keeps voice audio private and served via signed URLs", () => {
     expect(storageMigration).toContain("set public = false");
     expect(storageMigration).toContain('drop policy if exists "Public read access for voice audio"');
-    expect(voiceContext).toContain(".createSignedUrl(");
+    expect(voiceWebhook).toContain('.from("voice-audio")');
+    expect(voiceWebhook).toContain(".createSignedUrl(path, 300)");
   });
 });
