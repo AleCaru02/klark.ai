@@ -9,8 +9,7 @@ serve(async (request) => {
   if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
 
   const callbackUrl = new URL(request.url);
-  const appUrl = Deno.env.get("APP_URL")?.replace(/\/$/, "") ||
-    "https://assistant-call-sync.lovable.app";
+  const appUrl = requiredEnv("APP_URL").replace(/\/$/, "");
   const destination = `${appUrl}/app/integrations/google-calendar`;
   const supabase = createServiceClient();
 
@@ -70,18 +69,38 @@ serve(async (request) => {
       return redirect(destination, { error: "token_exchange_failed" });
     }
 
+    const grantedScope = typeof tokenData.scope === "string" ? tokenData.scope : "";
+    if (!hasRequiredCalendarScopes(grantedScope)) {
+      await writeAudit(supabase, tenantId, userId, "google_oauth.insufficient_scope", {
+        granted_scope: grantedScope,
+      });
+      return redirect(destination, { error: "insufficient_scope" });
+    }
+
+    const { data: existingToken, error: existingTokenError } = await supabase
+      .from("google_tokens")
+      .select("refresh_token")
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (existingTokenError) throw existingTokenError;
+    const refreshToken = typeof tokenData.refresh_token === "string" && tokenData.refresh_token
+      ? tokenData.refresh_token
+      : existingToken?.refresh_token;
+    if (!refreshToken) {
+      await writeAudit(supabase, tenantId, userId, "google_oauth.refresh_token_missing", {});
+      return redirect(destination, { error: "refresh_token_missing" });
+    }
+
     const tokenRecord: Record<string, unknown> = {
       tenant_id: tenantId,
       access_token: tokenData.access_token,
+      refresh_token: refreshToken,
       token_expires_at: new Date(
-        Date.now() + Number(tokenData.expires_in || 3600) * 1000,
+        Date.now() + Math.max(60, Number(tokenData.expires_in || 3600)) * 1000,
       ).toISOString(),
-      scope: typeof tokenData.scope === "string" ? tokenData.scope : "",
+      scope: grantedScope,
       updated_at: new Date().toISOString(),
     };
-    if (typeof tokenData.refresh_token === "string" && tokenData.refresh_token) {
-      tokenRecord.refresh_token = tokenData.refresh_token;
-    }
 
     const { error: tokenError } = await supabase
       .from("google_tokens")
@@ -90,7 +109,8 @@ serve(async (request) => {
 
     await writeAudit(supabase, tenantId, userId, "google_oauth.connected", {
       scope: tokenRecord.scope,
-      refresh_token_received: Boolean(tokenRecord.refresh_token),
+      refresh_token_received: Boolean(tokenData.refresh_token),
+      refresh_token_preserved: !tokenData.refresh_token && Boolean(refreshToken),
     });
 
     const { error: syncError } = await supabase.functions.invoke(
@@ -163,6 +183,23 @@ async function registerGoogleWatch(
     updated_at: new Date().toISOString(),
   }, { onConflict: "channel_id" });
   if (error) throw error;
+}
+
+
+function hasRequiredCalendarScopes(scopeValue: string): boolean {
+  const scopes = new Set(scopeValue.split(/\s+/).filter(Boolean));
+  const fullCalendar = scopes.has("https://www.googleapis.com/auth/calendar");
+  const canListCalendars = fullCalendar ||
+    scopes.has("https://www.googleapis.com/auth/calendar.calendarlist") ||
+    scopes.has("https://www.googleapis.com/auth/calendar.calendarlist.readonly");
+  const canWriteEvents = fullCalendar ||
+    scopes.has("https://www.googleapis.com/auth/calendar.events") ||
+    scopes.has("https://www.googleapis.com/auth/calendar.events.owned");
+  const canReadFreeBusy = fullCalendar ||
+    scopes.has("https://www.googleapis.com/auth/calendar.freebusy") ||
+    scopes.has("https://www.googleapis.com/auth/calendar.events.freebusy") ||
+    scopes.has("https://www.googleapis.com/auth/calendar.readonly");
+  return canListCalendars && canWriteEvents && canReadFreeBusy;
 }
 
 async function writeAudit(
