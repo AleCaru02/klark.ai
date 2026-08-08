@@ -1,0 +1,142 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "agent/**"
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies deterministically
+        run: npm ci --no-audit --no-fund
+      - name: Production dependency security audit
+        run: npm audit --omit=dev
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and product integrity tests
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Lint changed service-flow files
+        run: |
+          npx eslint \
+            src/App.tsx \
+            src/components/landing/Footer.tsx \
+            src/components/landing/Hero.tsx \
+            src/components/landing/HeroProductPreview.tsx \
+            src/components/landing/HowItWorks.tsx \
+            src/components/landing/HumanHandoff.tsx \
+            src/components/landing/Navbar.tsx \
+            src/components/landing/Pricing.tsx \
+            src/components/landing/VoiceDemo.tsx \
+            src/components/layouts/AdminLayout.tsx \
+            src/components/layouts/DashboardLayout.tsx \
+            src/config/automation.ts \
+            src/config/plans.ts \
+            src/hooks/usePageMeta.ts \
+            src/hooks/usePhoneNumbers.ts \
+            src/hooks/usePlanFeatures.ts \
+            src/hooks/useServiceOperations.ts \
+            src/lib/serviceQuality.ts \
+            src/pages/OperationalDemo.tsx \
+            src/pages/SectorLanding.tsx \
+            src/pages/ServiceAssessment.tsx \
+            src/pages/ServiceCharter.tsx \
+            src/pages/Technology.tsx \
+            src/pages/admin/DemoRequests.tsx \
+            src/pages/admin/Provisioning.tsx \
+            src/pages/app/AutomationStudio.tsx \
+            src/pages/app/Handoffs.tsx \
+            src/pages/app/KnowledgeGovernance.tsx \
+            src/pages/app/Onboarding.tsx \
+            src/pages/app/QualityCenter.tsx \
+            src/pages/app/ServiceValue.tsx \
+            src/pages/app/SiteChatbot.tsx \
+            src/test/product-integrity.test.ts \
+            src/test/public-demo-request-security.test.ts \
+            src/test/public-light-theme.test.ts \
+            src/test/public-routes.smoke.test.tsx \
+            src/test/public-seo-integrity.test.ts \
+            src/test/service-quality.test.ts \
+            src/test/site-chat-security.test.ts
+      - name: Full repository lint
+        run: npm run lint
+
+  edge-functions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Security helper tests
+        run: |
+          deno test --config deno.json supabase/functions/_shared/security_test.ts
+          deno test --config deno.json supabase/functions/_shared/site-chat_test.ts
+      - name: Check every Edge Function and shared module
+        shell: bash
+        run: |
+          mapfile -d '' files < <(find supabase/functions -type f -name '*.ts' ! -name '*_test.ts' -print0 | sort -z)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No Edge Function TypeScript files found"
+            exit 1
+          fi
+
+          failed=0
+          printf 'Checking %s TypeScript files individually\n' "${#files[@]}"
+          for file in "${files[@]}"; do
+            echo "::group::deno check $file"
+            if ! deno check --config deno.json "$file"; then
+              echo "::error file=$file::Deno check failed"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure environment files are not tracked
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
+            echo 'Tracked environment file detected'
+            exit 1
+          fi
+      - name: Reject known placeholder identities and contacts
+        run: |
+          pattern="ClerkAI S\\.r\\.l\\.|Via Ex""ample|IT00000000000|393400000000|02 0000 0000"
+          if git grep -n -E "$pattern" -- \
+            ':!src/test/product-integrity.test.ts' \
+            ':!.github/workflows/quality.yml'; then
+            echo 'Placeholder public identity or contact detected'
+            exit 1
+          fi
+      - name: Reject browser-exposed provider secrets
+        run: |
+          if git grep -n -E 'VITE_(OPENAI|TWILIO|ELEVENLABS|STRIPE_SECRET|META_APP_SECRET|GOOGLE_CLIENT_SECRET)' -- ':!*.md'; then
+            echo 'Server provider secret exposed with a VITE_ prefix'
+            exit 1
+          fi
