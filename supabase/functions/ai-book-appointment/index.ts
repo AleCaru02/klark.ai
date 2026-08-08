@@ -174,6 +174,9 @@ serve(async (request) => {
       })
       .select("id")
       .single();
+    if (appointmentError?.code === "23P01") {
+      return jsonResponse({ error: "The requested slot is already occupied" }, 409, corsHeaders);
+    }
     if (appointmentError?.code === "23505") {
       const { data: duplicate, error: duplicateError } = await supabase
         .from("appointments")
@@ -438,8 +441,23 @@ async function getValidGoogleToken(
       grant_type: "refresh_token",
     }),
   });
-  const data = await response.json() as { access_token?: string; expires_in?: number };
-  if (!response.ok || !data.access_token) throw new Error(`Google token refresh failed ${response.status}`);
+  const data = await response.json().catch(() => ({})) as {
+    access_token?: string;
+    expires_in?: number;
+    error?: string;
+  };
+  if (!response.ok || !data.access_token) {
+    const { error: auditError } = await supabase.from("audit_log").insert({
+      tenant_id: tenantId,
+      action: "google_oauth.refresh_failed",
+      payload_json: {
+        provider_status: response.status,
+        provider_error_code: data.error?.slice(0, 100) || "unknown",
+      },
+    });
+    if (auditError) console.error("[ai-book-appointment] Google refresh audit failed", auditError);
+    throw new AuthError("Google Calendar reconnection required", 409);
+  }
 
   const { error } = await supabase
     .from("google_tokens")
@@ -473,6 +491,9 @@ async function googleCalendarIsBusy(
       items: [{ id: calendarId }],
     }),
   });
+  if (response.status === 401 || response.status === 403) {
+    throw new AuthError("Google Calendar reconnection required", 409);
+  }
   if (!response.ok) throw new Error(`Google freeBusy failed ${response.status}`);
   const data = await response.json() as any;
   return Array.isArray(data.calendars?.[calendarId]?.busy) &&

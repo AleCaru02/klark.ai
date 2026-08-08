@@ -8,15 +8,27 @@ import {
   sha256Hex,
 } from "../_shared/security.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+function corsHeaders(request: Request): Record<string, string> {
+  const appUrl = requiredEnv("APP_URL").replace(/\/$/, "");
+  const extraOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  const allowed = new Set([appUrl, ...extraOrigins]);
+  const requestOrigin = request.headers.get("Origin")?.replace(/\/$/, "");
+  return {
+    "Access-Control-Allow-Origin": requestOrigin && allowed.has(requestOrigin) ? requestOrigin : appUrl,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
 serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const headers = corsHeaders(request);
+  if (request.method === "OPTIONS") return new Response("ok", { headers });
   if (request.method !== "GET" && request.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, 405, { ...corsHeaders, Allow: "GET, POST" });
+    return jsonResponse({ error: "Method not allowed" }, 405, { ...headers, Allow: "GET, POST" });
   }
 
   try {
@@ -49,6 +61,7 @@ serve(async (request) => {
     const scopes = [
       "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
       "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.events.freebusy",
     ];
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", clientId);
@@ -56,6 +69,7 @@ serve(async (request) => {
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", scopes.join(" "));
     authUrl.searchParams.set("access_type", "offline");
+    authUrl.searchParams.set("include_granted_scopes", "true");
     authUrl.searchParams.set("prompt", "consent");
     authUrl.searchParams.set("state", state);
 
@@ -67,14 +81,14 @@ serve(async (request) => {
     });
     if (auditError) console.error("[google-auth-start] Audit write failed", auditError);
 
-    return jsonResponse({ auth_url: authUrl.toString() }, 200, corsHeaders);
+    return jsonResponse({ auth_url: authUrl.toString() }, 200, headers);
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
     console.error("[google-auth-start] Error", error);
     return jsonResponse(
       { error: status < 500 && error instanceof Error ? error.message : "OAuth initialization failed" },
       status,
-      corsHeaders,
+      headers,
     );
   }
 });
