@@ -1,0 +1,31 @@
+name: Apply Chatbot Provider Patch
+
+on:
+  push:
+    branches:
+      - mvp/chatbot-provider
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: mvp/chatbot-provider
+          fetch-depth: 0
+      - name: Apply chatbot provider patch
+        run: |
+          set -euo pipefail
+          base64 -d .recovery/chatbot.patch.b64 | gzip -d > /tmp/chatbot.patch
+          git apply -p1 --check /tmp/chatbot.patch
+          git apply -p1 /tmp/chatbot.patch
+          rm -rf .recovery
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: make public chatbot provider fail-closed and tenant-correct'
+          git push origin HEAD:mvp/chatbot-provider
