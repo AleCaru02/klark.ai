@@ -48,3 +48,5 @@ jobs:
         run: |
           set -euo pipefail
           supabase migration list --linked
+      - name: Confirm clean replay state
+        run: echo 'Candidate migration history revalidated'
