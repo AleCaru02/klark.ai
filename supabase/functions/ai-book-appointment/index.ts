@@ -4,6 +4,7 @@ import {
   createServiceClient,
   jsonResponse,
   requiredEnv,
+  requireActiveTenant,
   requireServiceRole,
   sha256Hex,
 } from "../_shared/security.ts";
@@ -52,6 +53,8 @@ serve(async (request) => {
     const body = await request.json() as BookingRequest;
     const validationError = validateRequest(body);
     if (validationError) return jsonResponse({ error: validationError }, 400, corsHeaders);
+
+    await requireActiveTenant(supabase, body.tenant_id);
 
     const durationMinutes = Math.min(240, Math.max(15, Number(body.duration_minutes || 30)));
     const meetingType = body.meeting_type || "online";

@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, ArrowRight, Calendar, CheckCircle2, CircleDashed, CreditCard, Facebook, MessageCircle, Phone, ShieldCheck, TestTube2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Calendar, CheckCircle2, CircleDashed, Facebook, MessageCircle, Phone, ShieldCheck, TestTube2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useIntegrationStatus } from "@/hooks/useIntegrationStatus";
 
@@ -35,10 +35,8 @@ export function IntegrationStatus() {
   const { membership } = useAuth();
   const { status, loading: integrationsLoading, error: integrationsError } = useIntegrationStatus(Boolean(membership));
   const [voiceConfigured, setVoiceConfigured] = useState(false);
-  const [planCode, setPlanCode] = useState<string | null>(null);
   const [localLoading, setLocalLoading] = useState(true);
 
-  const billingVerified = import.meta.env.VITE_STRIPE_LIVE_VERIFIED === "true";
   const endToEndVerified = import.meta.env.VITE_E2E_VERIFIED === "true";
   const productionApproved = import.meta.env.VITE_PRODUCTION_READINESS_APPROVED === "true";
 
@@ -51,22 +49,13 @@ export function IntegrationStatus() {
 
     const fetchLocalReadiness = async () => {
       setLocalLoading(true);
-      const [settingsResult, subscriptionResult] = await Promise.all([
-        supabase
-          .from("settings")
-          .select("voice_enabled,twilio_number_sid")
-          .eq("tenant_id", tenantId)
-          .maybeSingle(),
-        supabase
-          .from("subscriptions")
-          .select("plan_code")
-          .eq("tenant_id", tenantId)
-          .eq("status", "active")
-          .maybeSingle(),
-      ]);
+      const { data: settingsData } = await supabase
+        .from("settings")
+        .select("voice_enabled,twilio_number_sid")
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
 
-      setVoiceConfigured(Boolean(settingsResult.data?.voice_enabled && settingsResult.data?.twilio_number_sid));
-      setPlanCode(subscriptionResult.data?.plan_code ?? null);
+      setVoiceConfigured(Boolean(settingsData?.voice_enabled && settingsData?.twilio_number_sid));
       setLocalLoading(false);
     };
 
@@ -74,8 +63,8 @@ export function IntegrationStatus() {
   }, [membership?.tenant_id]);
 
   const loading = integrationsLoading || localLoading;
-  const needsWhatsApp = planCode === "combo_start" || planCode === "combo_pro";
-  const needsFacebook = planCode === "combo_pro";
+  const needsWhatsApp = false;
+  const needsFacebook = false;
 
   const items = useMemo<ReadinessItem[]>(() => {
     const integrationState = (connected: boolean, required: boolean): ReadinessState => {
@@ -102,23 +91,16 @@ export function IntegrationStatus() {
       {
         id: "whatsapp",
         label: "WhatsApp Business",
-        description: needsWhatsApp ? "Richiesto dal piano attivo." : "Non richiesto dal piano Voice Agenda.",
+        description: "Fase 2: non richiesto per l’MVP Voice + CRM + Calendar + chatbot.",
         state: integrationState(Boolean(status.whatsapp.connected && !status.whatsapp.expired), needsWhatsApp),
         icon: MessageCircle,
       },
       {
         id: "facebook",
         label: "Meta Lead Ads",
-        description: needsFacebook ? "Richiesto dal piano Full." : "Modulo non richiesto dal piano attivo.",
+        description: "Fase 2: non richiesto per l’MVP iniziale.",
         state: integrationState(Boolean(status.facebook.connected && !status.facebook.expired), needsFacebook),
         icon: Facebook,
-      },
-      {
-        id: "billing",
-        label: "Billing Stripe live",
-        description: "Webhook, prodotti, prezzi, meters e pagamento reale verificati.",
-        state: billingVerified ? "ready" : "missing",
-        icon: CreditCard,
       },
       {
         id: "e2e",
@@ -128,7 +110,7 @@ export function IntegrationStatus() {
         icon: TestTube2,
       },
     ];
-  }, [billingVerified, endToEndVerified, loading, needsFacebook, needsWhatsApp, status, voiceConfigured]);
+  }, [endToEndVerified, loading, needsFacebook, needsWhatsApp, status, voiceConfigured]);
 
   const blockers = items.filter((item) => item.state === "missing");
   const readyForProduction = productionApproved && blockers.length === 0 && !integrationsError;
@@ -159,7 +141,7 @@ export function IntegrationStatus() {
             <div>
               <p className="text-sm font-semibold">Go-live non autorizzato</p>
               <p className="text-xs text-muted-foreground mt-1">
-                L'approvazione deve essere impostata esplicitamente solo dopo provider, billing e test end-to-end completati.
+                L'approvazione deve essere impostata esplicitamente solo dopo provider e test end-to-end completati.
               </p>
             </div>
           </div>

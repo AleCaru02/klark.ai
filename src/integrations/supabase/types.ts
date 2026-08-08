@@ -2391,6 +2391,63 @@ export type Database = {
           },
         ]
       }
+      tenant_service_accounts: {
+        Row: {
+          activated_at: string | null
+          admin_notes: string | null
+          created_at: string
+          next_payment_at: string | null
+          plan_code: string
+          renewal_due_at: string | null
+          service_end_at: string | null
+          status: string
+          tenant_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          activated_at?: string | null
+          admin_notes?: string | null
+          created_at?: string
+          next_payment_at?: string | null
+          plan_code: string
+          renewal_due_at?: string | null
+          service_end_at?: string | null
+          status?: string
+          tenant_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          activated_at?: string | null
+          admin_notes?: string | null
+          created_at?: string
+          next_payment_at?: string | null
+          plan_code?: string
+          renewal_due_at?: string | null
+          service_end_at?: string | null
+          status?: string
+          tenant_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_service_accounts_plan_code_fkey"
+            columns: ["plan_code"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "tenant_service_accounts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tenant_knowledge: {
         Row: {
           content_summary: string | null

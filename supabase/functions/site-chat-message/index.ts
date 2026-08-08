@@ -1,7 +1,9 @@
 import {
+  AuthError,
   createServiceClient,
   jsonResponse,
   requiredEnv,
+  requireActiveTenant,
 } from "../_shared/security.ts";
 import {
   appOriginAllowed,
@@ -67,6 +69,8 @@ Deno.serve(async (request) => {
     if (!chatbot || !allowed || !requestOrigin) {
       return jsonResponse({ error: "Widget not available for this origin" }, 403, headers);
     }
+
+    await requireActiveTenant(client, chatbot.tenant_id);
 
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > 16_384) {
@@ -307,6 +311,9 @@ Deno.serve(async (request) => {
   } catch (error) {
     console.error("[site-chat-message] Failed", error);
     const headers = siteChatCors(requestOrigin, false);
+    if (error instanceof AuthError) {
+      return jsonResponse({ error: error.message }, error.status, headers);
+    }
     return jsonResponse({ error: "Chat service temporarily unavailable" }, 503, headers);
   }
 });
