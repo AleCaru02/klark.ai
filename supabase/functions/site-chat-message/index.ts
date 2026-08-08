@@ -2,8 +2,6 @@ import {
   AuthError,
   createServiceClient,
   jsonResponse,
-  requiredEnv,
-  requireActiveTenant,
 } from "../_shared/security.ts";
 import {
   appOriginAllowed,
@@ -43,6 +41,16 @@ interface AiResult {
   answer: string;
   safety_status: "ok" | "limited" | "handoff" | "blocked";
   handoff: boolean;
+  provider_status: "ok" | "not_used" | "unavailable";
+  input_tokens: number;
+  output_tokens: number;
+}
+
+class AiProviderError extends Error {
+  constructor(public readonly code: string) {
+    super(`AI provider unavailable: ${code}`);
+    this.name = "AiProviderError";
+  }
 }
 
 Deno.serve(async (request) => {
@@ -70,7 +78,6 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: "Widget not available for this origin" }, 403, headers);
     }
 
-    await requireActiveTenant(client, chatbot.tenant_id);
 
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > 16_384) {
@@ -267,13 +274,20 @@ Deno.serve(async (request) => {
       .limit(10);
 
     const highRisk = /(?:diagnosi|prescrivi|farmaco|dose|parere legale|consulenza legale|investimento sicuro|rendimento garantito|emergenza medica|suicid|autolesion)/i.test(message);
-    const aiResult = highRisk
-      ? {
-          answer: "Non posso fornire diagnosi, prescrizioni o consulenze professionali personalizzate. Posso aiutarti con informazioni organizzative oppure registrare una richiesta per una persona.",
-          safety_status: "limited" as const,
-          handoff: chatbot.escalation_enabled,
-        }
-      : await generateAnswer({
+    let aiResult: AiResult;
+    if (highRisk) {
+      aiResult = {
+        answer: "Non posso fornire diagnosi, prescrizioni o consulenze professionali personalizzate. Posso aiutarti con informazioni organizzative oppure registrare una richiesta per una persona.",
+        safety_status: "limited",
+        handoff: chatbot.escalation_enabled,
+        provider_status: "not_used",
+        input_tokens: 0,
+        output_tokens: 0,
+      };
+    } else {
+      try {
+        aiResult = await generateAnswer({
+          tenantId: chatbot.tenant_id,
           tenantName: tenant?.name || "Attività",
           tenantConfiguration: settings?.ai_prompt_json || {},
           sources: selectedSources,
@@ -281,6 +295,35 @@ Deno.serve(async (request) => {
           message,
           escalationEnabled: chatbot.escalation_enabled,
         });
+      } catch (error) {
+        if (!(error instanceof AiProviderError)) throw error;
+        console.error("[site-chat-message] AI provider unavailable", error.code);
+        const providerAudit = await client.from("audit_log").insert({
+          tenant_id: chatbot.tenant_id,
+          actor_user_id: null,
+          action: "site_chat.provider_failed",
+          payload_json: {
+            chatbot_id: chatbot.id,
+            session_id: session.id,
+            provider: "openai",
+            error_code: error.code,
+          },
+        });
+        if (providerAudit.error) {
+          console.error("[site-chat-message] Unable to audit provider failure", providerAudit.error.code);
+        }
+        aiResult = {
+          answer: chatbot.escalation_enabled
+            ? `In questo momento il servizio AI non è disponibile. Riprova tra poco oppure usa “${chatbot.human_label}” per chiedere un ricontatto.`
+            : "In questo momento il servizio AI non è disponibile. Riprova tra poco.",
+          safety_status: "limited",
+          handoff: false,
+          provider_status: "unavailable",
+          input_tokens: 0,
+          output_tokens: 0,
+        };
+      }
+    }
 
     const sourceIds = selectedSources.map((source) => source.id);
     await storeMessage(
@@ -291,6 +334,8 @@ Deno.serve(async (request) => {
       aiResult.answer,
       sourceIds,
       aiResult.safety_status,
+      aiResult.input_tokens,
+      aiResult.output_tokens,
     );
 
     if (aiResult.handoff && chatbot.escalation_enabled) {
@@ -301,6 +346,7 @@ Deno.serve(async (request) => {
       answer: aiResult.answer,
       handoff: aiResult.handoff,
       safety_status: aiResult.safety_status,
+      provider_status: aiResult.provider_status,
       sources: selectedSources.map((source) => ({
         id: source.id,
         name: source.source_name,
@@ -473,6 +519,7 @@ function selectRelevantSources(sources: ApprovedSource[], query: string, limit: 
 }
 
 async function generateAnswer(input: {
+  tenantId: string;
   tenantName: string;
   tenantConfiguration: unknown;
   sources: ApprovedSource[];
@@ -487,6 +534,9 @@ async function generateAnswer(input: {
         : "Non ho ancora una fonte approvata che mi permetta di rispondere con sicurezza.",
       safety_status: "limited",
       handoff: input.escalationEnabled,
+      provider_status: "not_used",
+      input_tokens: 0,
+      output_tokens: 0,
     };
   }
 
@@ -513,41 +563,54 @@ REGOLE NON NEGOZIABILI:
 Rispondi esclusivamente con JSON valido:
 {"answer":"testo","safety_status":"ok|limited|handoff|blocked","handoff":false}`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${requiredEnv("OPENAI_API_KEY")}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: Deno.env.get("OPENAI_CHAT_MODEL") || "gpt-5-mini",
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "system",
-          content: `CONFIGURAZIONE AZIENDALE\n${configuration}\n\nFONTI APPROVATE\n${sourceText}`,
-        },
-        ...input.history.map((item) => ({ role: item.role, content: item.content.slice(0, 1500) })),
-        { role: "user", content: input.message },
-      ],
-    }),
-  });
+  const apiKey = Deno.env.get("OPENAI_API_KEY")?.trim();
+  if (!apiKey) throw new AiProviderError("missing_api_key");
+
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: Deno.env.get("OPENAI_CHAT_MODEL") || "gpt-5-mini",
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "system",
+            content: `CONFIGURAZIONE AZIENDALE\n${configuration}\n\nFONTI APPROVATE\n${sourceText}`,
+          },
+          ...input.history.map((item) => ({ role: item.role, content: item.content.slice(0, 1500) })),
+          { role: "user", content: input.message },
+        ],
+      }),
+    });
+  } catch {
+    throw new AiProviderError("network_error");
+  }
 
   if (!response.ok) {
     console.error("[site-chat-message] OpenAI rejected request", response.status);
-    throw new Error("AI provider unavailable");
+    throw new AiProviderError(`http_${response.status}`);
   }
-  const payload = await response.json() as Record<string, any>;
+  let payload: Record<string, any>;
+  try {
+    payload = await response.json() as Record<string, any>;
+  } catch {
+    throw new AiProviderError("invalid_response");
+  }
   const content = payload.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("Invalid AI response");
+  if (typeof content !== "string") throw new AiProviderError("invalid_response");
 
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error("Invalid AI JSON response");
+    throw new AiProviderError("invalid_json");
   }
   const answer = cleanText(parsed.answer, 4000);
   const allowedStatuses = new Set(["ok", "limited", "handoff", "blocked"]);
@@ -555,24 +618,31 @@ Rispondi esclusivamente con JSON valido:
     ? parsed.safety_status as AiResult["safety_status"]
     : "limited";
   const handoff = parsed.handoff === true && input.escalationEnabled;
-  if (!answer) throw new Error("Empty AI answer");
+  if (!answer) throw new AiProviderError("empty_answer");
 
   const promptTokens = Number(payload.usage?.prompt_tokens || 0);
   const completionTokens = Number(payload.usage?.completion_tokens || 0);
   const inputRate = Number(Deno.env.get("OPENAI_INPUT_EUR_PER_MILLION") || 0);
   const outputRate = Number(Deno.env.get("OPENAI_OUTPUT_EUR_PER_MILLION") || 0);
   const estimatedCostCents = ((promptTokens * inputRate + completionTokens * outputRate) / 1_000_000) * 100;
-  // Usage is recorded by the caller's tenant through a service-role-only RPC.
+  // Usage is always attributed to the chatbot's real tenant, never to prompt JSON.
   const client = createServiceClient();
-  const tenantId = (input.tenantConfiguration as Record<string, unknown>)?.tenant_id;
-  if (typeof tenantId === "string") {
-    await client.rpc("record_site_chat_usage", {
-      p_tenant_id: tenantId,
-      p_input_tokens: promptTokens,
-      p_output_tokens: completionTokens,
-      p_estimated_cost_cents: estimatedCostCents,
-    });
+  const usageResult = await client.rpc("record_site_chat_usage", {
+    p_tenant_id: input.tenantId,
+    p_input_tokens: promptTokens,
+    p_output_tokens: completionTokens,
+    p_estimated_cost_cents: estimatedCostCents,
+  });
+  if (usageResult.error) {
+    console.error("[site-chat-message] Unable to record provider usage", usageResult.error.code);
   }
 
-  return { answer, safety_status: safetyStatus, handoff };
+  return {
+    answer,
+    safety_status: safetyStatus,
+    handoff,
+    provider_status: "ok",
+    input_tokens: promptTokens,
+    output_tokens: completionTokens,
+  };
 }
