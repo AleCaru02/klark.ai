@@ -18,7 +18,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: weufeilkdzimmmgskobs
@@ -58,10 +57,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          supabase secrets set --project-ref "$PROJECT_REF" \
-            "OPENAI_API_KEY=$OPENAI_API_KEY" \
-            "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
-            "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+          secrets_file="$RUNNER_TEMP/clerkai-supabase-secrets.env"
+          trap 'rm -f "$secrets_file"' EXIT
+          umask 077
+          {
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+          } > "$secrets_file"
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$secrets_file"
+          rm -f "$secrets_file"
+          trap - EXIT
 
       - name: Deploy Voice functions
         shell: bash
