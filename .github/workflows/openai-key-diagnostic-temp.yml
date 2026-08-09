@@ -17,7 +17,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - name: Inspect granted model IDs safely
+      - name: Verify gpt-5.4-mini with chatbot-compatible payload
         shell: bash
         run: |
           set -euo pipefail
@@ -29,29 +29,50 @@ jobs:
           import urllib.error
 
           key = os.environ['OPENAI_API_KEY']
+          payload = json.dumps({
+              'model': 'gpt-5.4-mini',
+              'temperature': 0.2,
+              'response_format': {'type': 'json_object'},
+              'messages': [
+                  {'role': 'system', 'content': 'Rispondi esclusivamente con JSON valido: {"answer":"test","safety_status":"ok","handoff":false}'},
+                  {'role': 'user', 'content': 'Rispondi con un breve test.'},
+              ],
+          }).encode('utf-8')
           req = urllib.request.Request(
-              'https://api.openai.com/v1/models',
-              headers={'Authorization': f'Bearer {key}'},
-              method='GET',
+              'https://api.openai.com/v1/chat/completions',
+              data=payload,
+              headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+              method='POST',
           )
           try:
-              with urllib.request.urlopen(req, timeout=45) as resp:
+              with urllib.request.urlopen(req, timeout=60) as resp:
                   data = json.loads(resp.read().decode('utf-8'))
-                  print(f"MODELS_HTTP={resp.status}")
+                  print(f"CHAT_HTTP={resp.status}")
           except urllib.error.HTTPError as exc:
               raw = exc.read().decode('utf-8', errors='replace')
               try: data = json.loads(raw)
-              except Exception: data = {'error': {'message': raw[:500]}}
+              except Exception: data = {'error': {'message': raw[:800]}}
               e = data.get('error') or {}
-              print(f"MODELS_HTTP={exc.code}")
-              print(f"MODELS_ERROR_CODE={e.get('code')}")
-              print(f"MODELS_ERROR_MESSAGE={str(e.get('message') or '')[:500]}")
+              print(f"CHAT_HTTP={exc.code}")
+              print(f"CHAT_ERROR_TYPE={e.get('type')}")
+              print(f"CHAT_ERROR_CODE={e.get('code')}")
+              print(f"CHAT_ERROR_MESSAGE={str(e.get('message') or '')[:800]}")
               raise SystemExit(1)
 
-          ids = sorted({m.get('id') for m in data.get('data', []) if m.get('id')})
-          relevant = [m for m in ids if m.startswith(('gpt-', 'o1', 'o3', 'o4'))]
-          print(f"MODEL_COUNT={len(ids)}")
-          print(f"CHAT_LIKE_MODEL_COUNT={len(relevant)}")
-          for model in relevant[:100]:
-              print(f"GRANTED_MODEL={model}")
+          choices = data.get('choices') or []
+          content = (((choices[0] if choices else {}).get('message') or {}).get('content') or '').strip()
+          usage = data.get('usage') or {}
+          ok_json = False
+          try:
+              parsed = json.loads(content)
+              ok_json = isinstance(parsed, dict) and bool(parsed.get('answer'))
+          except Exception:
+              pass
+          print(f"MODEL={data.get('model')}")
+          print(f"JSON_RESPONSE_OK={str(ok_json).lower()}")
+          print(f"PROMPT_TOKENS={usage.get('prompt_tokens',0)}")
+          print(f"COMPLETION_TOKENS={usage.get('completion_tokens',0)}")
+          if not ok_json:
+              raise SystemExit(1)
+          print('GPT_5_4_MINI_CHATBOT_PAYLOAD=PASS')
           PY
