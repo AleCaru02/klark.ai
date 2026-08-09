@@ -298,7 +298,7 @@ async function getValidAccessToken(
     return tokenData.access_token;
   }
   if (!tokenData.refresh_token) {
-    throw new AuthError("Google refresh token is unavailable", 409);
+    throw new AuthError("Google Calendar reconnection required", 409);
   }
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -311,13 +311,22 @@ async function getValidAccessToken(
       grant_type: "refresh_token",
     }),
   });
-  const data = await response.json() as {
+  const data = await response.json().catch(() => ({})) as {
     access_token?: string;
     expires_in?: number;
     error?: string;
   };
   if (!response.ok || !data.access_token) {
-    throw new Error(`Google token refresh failed: ${data.error || response.status}`);
+    const { error: auditError } = await supabase.from("audit_log").insert({
+      tenant_id: tenantId,
+      action: "google_oauth.refresh_failed",
+      payload_json: {
+        provider_status: response.status,
+        provider_error_code: data.error?.slice(0, 100) ?? "unknown",
+      },
+    });
+    if (auditError) console.error("[google-calendar-sync] Refresh failure audit failed", auditError);
+    throw new AuthError("Google Calendar reconnection required", 409);
   }
 
   const { error } = await supabase
