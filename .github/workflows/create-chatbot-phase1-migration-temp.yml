@@ -1,0 +1,26 @@
+name: Generate Chatbot Phase1 Migration Name
+
+on:
+  push:
+    branches:
+      - fix/chatbot-openai-e2e20
+    paths:
+      - '.github/workflows/create-chatbot-phase1-migration-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Generate migration with Supabase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration new chatbot_phase1_truth
+          find supabase/migrations -maxdepth 1 -type f -name '*_chatbot_phase1_truth.sql' -printf 'MIGRATION_FILE=%f\n'
