@@ -1,0 +1,65 @@
+name: Apply Google Calendar Candidate Readiness Fixes
+
+on:
+  push:
+    branches:
+      - fix/google-calendar-candidate-readiness
+    paths:
+      - '.github/workflows/fix-google-calendar-readiness-temp.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ipazbzctivqquwndifxh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/google-calendar-candidate-readiness
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Remove stale Google callback fallback from debug UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/pages/app/GoogleCalendarDebug.tsx')
+          s=p.read_text()
+          old='https://dpabktkvdhaxwpyhehis.supabase.co/functions/v1/google-auth-callback'
+          new='https://ipazbzctivqquwndifxh.supabase.co/functions/v1/google-auth-callback'
+          if old not in s:
+              raise SystemExit('stale callback literal not found')
+          p.write_text(s.replace(old,new))
+          PY
+      - name: Deploy missing Google UI support functions to candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test "$PROJECT_REF" = "ipazbzctivqquwndifxh"
+          for fn in google-calendars google-auth-disconnect; do
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done
+          out="$RUNNER_TEMP/functions.txt"
+          supabase functions list --project-ref "$PROJECT_REF" > "$out"
+          grep -q 'google-calendars' "$out"
+          grep -q 'google-auth-disconnect' "$out"
+          echo 'GOOGLE_UI_SUPPORT_FUNCTIONS=DEPLOYED'
+          rm -f "$out"
+      - name: Commit source fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-google-calendar-readiness-temp.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/app/GoogleCalendarDebug.tsx .github/workflows/fix-google-calendar-readiness-temp.yml
+          git commit -m 'fix: pin candidate Google OAuth callback in diagnostics'
+          git push origin HEAD:fix/google-calendar-candidate-readiness
