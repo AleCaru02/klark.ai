@@ -7,7 +7,7 @@ on:
       - '.github/workflows/temporary-build-candidate-artifact.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-          persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -24,63 +24,36 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
-      - name: Create candidate single-bundle Vite config
-        shell: bash
-        run: |
-          cat > vite.candidate-single.config.ts <<'EOF'
-          import { defineConfig } from "vite";
-          import react from "@vitejs/plugin-react-swc";
-          import path from "path";
-          export default defineConfig({
-            plugins: [react()],
-            resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
-            build: { rollupOptions: { output: { inlineDynamicImports: true } } },
-          });
-          EOF
       - name: Build candidate with Supabase enabled
         env:
           VITE_SUPABASE_URL: https://ipazbzctivqquwndifxh.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_WVqZ-6gb2SutSOpqqFY_6w_YPUwmOp5
-        run: npx vite build --config vite.candidate-single.config.ts
-      - name: Produce self-contained static candidate
+        run: npm run build
+      - name: Verify candidate build
         shell: bash
         run: |
           set -euo pipefail
-          node <<'EOF'
-          const fs = require('fs');
-          const path = require('path');
-          let html = fs.readFileSync('dist/index.html', 'utf8');
-          const scriptMatch = html.match(/<script type="module" crossorigin src="([^"]+)"><\/script>/);
-          const cssMatch = html.match(/<link rel="stylesheet" crossorigin href="([^"]+)">/);
-          if (!scriptMatch || !cssMatch) throw new Error('Unable to locate built JS/CSS assets');
-          const jsPath = path.join('dist', scriptMatch[1].replace(/^\//, ''));
-          const cssPath = path.join('dist', cssMatch[1].replace(/^\//, ''));
-          const js = fs.readFileSync(jsPath, 'utf8').replace(/<\/script/gi, '<\\/script');
-          const css = fs.readFileSync(cssPath, 'utf8').replace(/<\/style/gi, '<\\/style');
-          const assistant = fs.readFileSync('dist/clark-site-assistant.js', 'utf8').replace(/<\/script/gi, '<\\/script');
-          const favicon = fs.readFileSync('dist/favicon.ico').toString('base64');
-          html = html.replace(scriptMatch[0], () => `<script type="module">${js}</script>`);
-          html = html.replace(cssMatch[0], () => `<style>${css}</style>`);
-          html = html.replace('<script defer src="/clark-site-assistant.js"></script>', () => `<script>${assistant}</script>`);
-          html = html.replace('href="/favicon.ico"', () => `href="data:image/x-icon;base64,${favicon}"`);
-          fs.rmSync('candidate-static', { recursive: true, force: true });
-          fs.mkdirSync('candidate-static', { recursive: true });
-          fs.writeFileSync('candidate-static/index.html', html);
-          for (const name of ['robots.txt', 'sitemap.xml', 'manifest.json']) {
-            if (fs.existsSync(path.join('dist', name))) fs.copyFileSync(path.join('dist', name), path.join('candidate-static', name));
-          }
-          EOF
-          grep -Fq 'ipazbzctivqquwndifxh.supabase.co' candidate-static/index.html
-          if grep -Fq '/assets/' candidate-static/index.html; then
-            echo 'Self-contained candidate still references /assets/'
-            grep -oE '/assets/[A-Za-z0-9._/-]+' candidate-static/index.html | sort -u | head -100 || true
-            exit 1
-          fi
-          test -s candidate-static/index.html
-          echo "Self-contained size: $(wc -c < candidate-static/index.html) bytes"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: clerkai-candidate-static
-          path: candidate-static/
-          if-no-files-found: error
-          retention-days: 1
+          grep -R -Fq 'ipazbzctivqquwndifxh.supabase.co' dist
+          test -s dist/index.html
+          tar -czf /tmp/clerkai-candidate-dist.tar.gz -C dist .
+          sha256sum /tmp/clerkai-candidate-dist.tar.gz | tee /tmp/candidate.sha256
+      - name: Publish verified static artifact branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/candidate-artifact-repo
+          mkdir -p /tmp/candidate-artifact-repo
+          cd /tmp/candidate-artifact-repo
+          git init
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout --orphan candidate-deploy-artifact
+          cp /tmp/clerkai-candidate-dist.tar.gz ./candidate-dist.tar.gz
+          cp /tmp/candidate.sha256 ./candidate-dist.sha256
+          printf 'Source commit: %s\n' "$GITHUB_SHA" > SOURCE_COMMIT.txt
+          git add candidate-dist.tar.gz candidate-dist.sha256 SOURCE_COMMIT.txt
+          git commit -m "deploy: candidate artifact $GITHUB_SHA"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin HEAD:candidate-deploy-artifact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
