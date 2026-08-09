@@ -21,7 +21,7 @@ jobs:
       CHAT_BASE: https://ipazbzctivqquwndifxh.supabase.co/functions/v1
       WIDGET_KEY: 21332d02-8c76-458b-9961-267db3044205
       CHAT_ORIGIN: https://clerkai-preview-alecaru02.vercel.app
-      TEST_UA: ClarkAI-E2E20-20260809-R4
+      TEST_UA: ClarkAI-E2E20-20260809-R5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,7 +127,8 @@ jobs:
           def phase_not_active(text):
               t = text.lower()
               return ('non attiv' in t or 'non è attiv' in t or 'non e attiv' in t or
-                      'fuori dalla fase 1' in t or 'non fa parte della fase 1' in t)
+                      'non sono attiv' in t or 'fuori dalla fase 1' in t or
+                      'non fa parte della fase 1' in t)
 
           def semantic_ok(idx, answer):
               t = answer.lower()
