@@ -17,17 +17,11 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - name: Verify secret presence
+      - name: Probe accessible chat models safely
         shell: bash
         run: |
           set -euo pipefail
           test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY=MISSING"; exit 1; }
-          echo "OPENAI_API_KEY=PRESENT"
-
-      - name: Test OpenAI API permissions safely
-        shell: bash
-        run: |
-          set -euo pipefail
           python3 - <<'PY'
           import json
           import os
@@ -35,6 +29,7 @@ jobs:
           import urllib.error
 
           key = os.environ['OPENAI_API_KEY']
+          headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
 
           def call(req):
               try:
@@ -49,28 +44,35 @@ jobs:
                   except Exception: data = {'error': {'message': raw[:500]}}
                   return exc.code, data
 
-          headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
-          req_models = urllib.request.Request('https://api.openai.com/v1/models', headers=headers, method='GET')
-          s1, d1 = call(req_models)
-          e1 = d1.get('error') or {}
-          print(f"MODELS_HTTP={s1}")
-          print(f"MODELS_ERROR_TYPE={e1.get('type')}")
-          print(f"MODELS_ERROR_CODE={e1.get('code')}")
-          print(f"MODELS_ERROR_MESSAGE={str(e1.get('message') or '')[:800]}")
-
-          body = json.dumps({
-              'model': 'gpt-5-mini',
-              'messages': [{'role':'user','content':'Rispondi solo con OK.'}],
-              'max_completion_tokens': 20,
-          }).encode('utf-8')
-          req_chat = urllib.request.Request('https://api.openai.com/v1/chat/completions', data=body, headers=headers, method='POST')
-          s2, d2 = call(req_chat)
-          e2 = d2.get('error') or {}
-          print(f"CHAT_HTTP={s2}")
-          print(f"CHAT_ERROR_TYPE={e2.get('type')}")
-          print(f"CHAT_ERROR_CODE={e2.get('code')}")
-          print(f"CHAT_ERROR_MESSAGE={str(e2.get('message') or '')[:800]}")
-          if s1 >= 400 or s2 >= 400:
+          s, models = call(urllib.request.Request('https://api.openai.com/v1/models', headers=headers, method='GET'))
+          print(f"MODELS_HTTP={s}")
+          if s != 200:
+              e = models.get('error') or {}
+              print(f"MODELS_ERROR_CODE={e.get('code')}")
+              print(f"MODELS_ERROR_MESSAGE={str(e.get('message') or '')[:500]}")
               raise SystemExit(1)
-          print('OPENAI_DIRECT_API=PASS')
+
+          available = {m.get('id') for m in models.get('data', []) if m.get('id')}
+          candidates = ['gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4o','gpt-4o-mini']
+          passed = []
+          for model in candidates:
+              if model not in available:
+                  print(f"MODEL_{model}=NOT_LISTED")
+                  continue
+              payload = json.dumps({
+                  'model': model,
+                  'messages': [{'role':'user','content':'Rispondi solo con OK.'}],
+                  'max_completion_tokens': 20,
+              }).encode('utf-8')
+              req = urllib.request.Request('https://api.openai.com/v1/chat/completions', data=payload, headers=headers, method='POST')
+              status, data = call(req)
+              if status == 200:
+                  print(f"MODEL_{model}=PASS")
+                  passed.append(model)
+              else:
+                  e = data.get('error') or {}
+                  print(f"MODEL_{model}=FAIL HTTP={status} CODE={e.get('code')} TYPE={e.get('type')} MESSAGE={str(e.get('message') or '')[:300]}")
+          print('ACCESSIBLE_CHAT_MODELS=' + ','.join(passed))
+          if not passed:
+              raise SystemExit(1)
           PY
