@@ -9,10 +9,24 @@ import {
   requireUserTenant,
 } from "../_shared/security.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+function corsHeaders(request: Request): Record<string, string> {
+  const appUrl = requiredEnv("APP_URL").replace(/\/$/, "");
+  const extraOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  const allowed = new Set([appUrl, ...extraOrigins]);
+  const requestOrigin = request.headers.get("Origin")?.replace(/\/$/, "");
+
+  return {
+    "Access-Control-Allow-Origin": requestOrigin && allowed.has(requestOrigin)
+      ? requestOrigin
+      : appUrl,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
 interface MakeCallRequest {
   contact_id: string;
@@ -22,12 +36,13 @@ interface MakeCallRequest {
 }
 
 serve(async (request) => {
+  const headers = corsHeaders(request);
   if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers });
   }
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405, {
-      ...corsHeaders,
+      ...headers,
       Allow: "POST",
     });
   }
@@ -43,7 +58,7 @@ serve(async (request) => {
     const body = await request.json() as MakeCallRequest;
     const testMode = body.test_mode === true;
     if (!body.contact_id || !body.tenant_id) {
-      return jsonResponse({ error: "contact_id and tenant_id are required" }, 400, corsHeaders);
+      return jsonResponse({ error: "contact_id and tenant_id are required" }, 400, headers);
     }
     if (testMode && body.call_queue_id) {
       throw new AuthError("Test calls cannot use the automated call queue", 400);
@@ -191,8 +206,9 @@ serve(async (request) => {
     });
 
     if (!twilioResponse.ok) {
-      const errorText = await twilioResponse.text();
-      console.error("[twilio-make-call] Provider error", twilioResponse.status, errorText);
+      console.error("[twilio-make-call] Provider rejected request", {
+        status: twilioResponse.status,
+      });
       throw new Error(`Twilio API error: ${twilioResponse.status}`);
     }
 
@@ -244,12 +260,12 @@ serve(async (request) => {
       call_log_id: callLog.id,
       test_mode: testMode,
       recording_requested: recordingRequested,
-    }, 200, corsHeaders);
+    }, 200, headers);
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
     const message = error instanceof Error ? error.message : "Internal server error";
     console.error("[twilio-make-call] Error", error);
-    return jsonResponse({ error: status < 500 ? message : "Call initiation failed" }, status, corsHeaders);
+    return jsonResponse({ error: status < 500 ? message : "Call initiation failed" }, status, headers);
   }
 });
 
