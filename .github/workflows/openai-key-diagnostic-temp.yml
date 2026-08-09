@@ -1,0 +1,76 @@
+name: OpenAI Key Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/openai-chatbot-e2e20
+    paths:
+      - '.github/workflows/openai-key-diagnostic-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Verify secret presence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY=MISSING"; exit 1; }
+          echo "OPENAI_API_KEY=PRESENT"
+
+      - name: Test OpenAI API permissions safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          import urllib.error
+
+          key = os.environ['OPENAI_API_KEY']
+
+          def call(req):
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as resp:
+                      raw = resp.read().decode('utf-8', errors='replace')
+                      try: data = json.loads(raw)
+                      except Exception: data = {}
+                      return resp.status, data
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode('utf-8', errors='replace')
+                  try: data = json.loads(raw)
+                  except Exception: data = {'error': {'message': raw[:500]}}
+                  return exc.code, data
+
+          headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
+          req_models = urllib.request.Request('https://api.openai.com/v1/models', headers=headers, method='GET')
+          s1, d1 = call(req_models)
+          e1 = d1.get('error') or {}
+          print(f"MODELS_HTTP={s1}")
+          print(f"MODELS_ERROR_TYPE={e1.get('type')}")
+          print(f"MODELS_ERROR_CODE={e1.get('code')}")
+          print(f"MODELS_ERROR_MESSAGE={str(e1.get('message') or '')[:800]}")
+
+          body = json.dumps({
+              'model': 'gpt-5-mini',
+              'messages': [{'role':'user','content':'Rispondi solo con OK.'}],
+              'max_completion_tokens': 20,
+          }).encode('utf-8')
+          req_chat = urllib.request.Request('https://api.openai.com/v1/chat/completions', data=body, headers=headers, method='POST')
+          s2, d2 = call(req_chat)
+          e2 = d2.get('error') or {}
+          print(f"CHAT_HTTP={s2}")
+          print(f"CHAT_ERROR_TYPE={e2.get('type')}")
+          print(f"CHAT_ERROR_CODE={e2.get('code')}")
+          print(f"CHAT_ERROR_MESSAGE={str(e2.get('message') or '')[:800]}")
+          if s1 >= 400 or s2 >= 400:
+              raise SystemExit(1)
+          print('OPENAI_DIRECT_API=PASS')
+          PY
