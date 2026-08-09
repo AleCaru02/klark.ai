@@ -12,9 +12,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      VITE_SUPABASE_URL: https://ipazbzctivqquwndifxh.supabase.co
-      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_WVqZ-6gb2SutSOpqqFY_6w_YPUwmOp5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +24,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      - name: Build candidate with Supabase enabled
+        env:
+          VITE_SUPABASE_URL: https://ipazbzctivqquwndifxh.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_WVqZ-6gb2SutSOpqqFY_6w_YPUwmOp5
+        run: npm run build
       - name: Verify candidate Supabase is embedded
         shell: bash
         run: |
