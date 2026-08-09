@@ -144,11 +144,11 @@ serve(async (request) => {
 
     const greeting = inbound
       ? contactName
-        ? `${timeGreeting} ${contactName}, sono l'assistente virtuale di ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
-        : `${timeGreeting}, sono l'assistente virtuale di ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
+        ? `${timeGreeting} ${contactName}, sono l'assistente virtuale basato su intelligenza artificiale di ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
+        : `${timeGreeting}, sono l'assistente virtuale basato su intelligenza artificiale di ${tenantName}. Come posso ${isLei ? "aiutarLa" : "aiutarti"}?`
       : contactName
-      ? `${timeGreeting} ${contactName}, sono l'assistente virtuale di ${tenantName}. ${isLei ? "La" : "Ti"} contatto per la richiesta ricevuta. ${isLei ? "Ha" : "Hai"} un momento?`
-      : `${timeGreeting}, sono l'assistente virtuale di ${tenantName}. ${isLei ? "La" : "Ti"} contatto per la richiesta ricevuta. ${isLei ? "Ha" : "Hai"} un momento?`;
+      ? `${timeGreeting} ${contactName}, sono l'assistente virtuale basato su intelligenza artificiale di ${tenantName}. ${isLei ? "La" : "Ti"} contatto per la richiesta ricevuta. ${isLei ? "Ha" : "Hai"} un momento?`
+      : `${timeGreeting}, sono l'assistente virtuale basato su intelligenza artificiale di ${tenantName}. ${isLei ? "La" : "Ti"} contatto per la richiesta ricevuta. ${isLei ? "Ha" : "Hai"} un momento?`;
 
     const { data: existingLog, error: existingLogError } = await supabase
       .from("call_logs")
