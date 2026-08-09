@@ -1,0 +1,86 @@
+name: Google Calendar Candidate Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/google-calendar-candidate-bootstrap.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: google-calendar-candidate-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_REF: ipazbzctivqquwndifxh
+      EXPECTED_CALLBACK: https://ipazbzctivqquwndifxh.supabase.co/functions/v1/google-auth-callback
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify required GitHub Actions secrets are available
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo 'SUPABASE_ACCESS_TOKEN missing'; exit 1; }
+          test -n "$GOOGLE_CLIENT_ID" || { echo 'GOOGLE_CLIENT_ID missing'; exit 1; }
+          test -n "$GOOGLE_CLIENT_SECRET" || { echo 'GOOGLE_CLIENT_SECRET missing'; exit 1; }
+          echo 'SUPABASE_ACCESS_TOKEN present'
+          echo 'GOOGLE_CLIENT_ID present'
+          echo 'GOOGLE_CLIENT_SECRET present'
+
+      - name: Verify OAuth callback source is candidate-safe
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'const redirectUri = `${supabaseUrl}/functions/v1/google-auth-callback`;' supabase/functions/google-auth-start/index.ts
+          grep -F 'const expectedRedirectUri = `${requiredEnv("SUPABASE_URL")}/functions/v1/google-auth-callback`;' supabase/functions/google-auth-callback/index.ts
+          test "$EXPECTED_CALLBACK" = 'https://ipazbzctivqquwndifxh.supabase.co/functions/v1/google-auth-callback'
+          echo "Candidate callback verified: $EXPECTED_CALLBACK"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Configure Google OAuth secrets on candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/google-calendar-secrets.env"
+          trap 'rm -f "$f"' EXIT
+          umask 077
+          {
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+          } > "$f"
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$f" >/dev/null
+          rm -f "$f"
+          trap - EXIT
+          echo 'Google OAuth secrets configured on candidate'
+
+      - name: Deploy Google Calendar Edge Functions from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          for fn in google-auth-start google-auth-callback google-calendars google-auth-disconnect ai-book-appointment google-calendar-sync calendar-watch; do
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done
+
+      - name: Audit deployed Google Calendar functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$PROJECT_REF"
+          echo 'Google Calendar candidate bootstrap complete'
