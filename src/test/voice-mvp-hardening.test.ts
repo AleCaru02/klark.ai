@@ -28,8 +28,8 @@ describe("MVP Voice hardening", () => {
     expect(makeCall).not.toMatch(/new URLSearchParams\(\{[\s\S]*Record:\s*["']true["']/);
   });
 
-  it("discloses the virtual assistant in the first Voice greeting", () => {
-    expect(webhook).toContain("sono l'assistente virtuale di ${tenantName}");
+  it("explicitly discloses the AI assistant in the first Voice greeting", () => {
+    expect(webhook).toContain("sono l'assistente virtuale basato su intelligenza artificiale di ${tenantName}");
   });
 
   it("validates Twilio webhooks with the owning subaccount token", () => {
