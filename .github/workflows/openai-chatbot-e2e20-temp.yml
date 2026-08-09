@@ -1,0 +1,183 @@
+name: OpenAI Candidate Chatbot E2E20
+
+on:
+  push:
+    branches:
+      - diagnostic/openai-chatbot-e2e20
+    paths:
+      - '.github/workflows/openai-chatbot-e2e20-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  e2e20:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PROJECT_REF: ipazbzctivqquwndifxh
+      CHAT_BASE: https://ipazbzctivqquwndifxh.supabase.co/functions/v1
+      WIDGET_KEY: 21332d02-8c76-458b-9961-267db3044205
+      CHAT_ORIGIN: https://clerkai-preview-alecaru02.vercel.app
+      TEST_UA: ClarkAI-E2E20-20260809
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify required secrets are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN=MISSING"; exit 1; }
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY=MISSING"; exit 1; }
+          echo "SUPABASE_ACCESS_TOKEN=PRESENT"
+          echo "OPENAI_API_KEY=PRESENT"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Configure OpenAI secret on candidate only
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/openai-secret.env"
+          trap 'rm -f "$f"' EXIT
+          umask 077
+          printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" > "$f"
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$f" >/dev/null
+          rm -f "$f"
+          trap - EXIT
+          echo "CANDIDATE_OPENAI_SECRET_SET=true"
+
+      - name: Deploy chatbot functions from canonical main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PROJECT_REF" = "ipazbzctivqquwndifxh"
+          supabase functions deploy site-chat-bootstrap --project-ref "$PROJECT_REF"
+          supabase functions deploy site-chat-message --project-ref "$PROJECT_REF"
+          echo "CHATBOT_FUNCTIONS_DEPLOYED=true"
+
+      - name: Run 20 real server-side chatbot requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.request
+          import urllib.error
+
+          base = os.environ['CHAT_BASE']
+          key = os.environ['WIDGET_KEY']
+          origin = os.environ['CHAT_ORIGIN']
+          ua = os.environ['TEST_UA']
+
+          questions = [
+              "Cosa fa ClerkAI?",
+              "Quanto costa?",
+              "Posso usare il mio numero?",
+              "Ho un cellulare 3331234567, devo cambiarlo?",
+              "Ho già un numero 02, posso mantenerlo?",
+              "Posso fare chiamate mentre ClerkAI chiama?",
+              "Come funziona la deviazione se non rispondo?",
+              "Funziona se sono occupato?",
+              "Può gestire le chiamate fuori orario?",
+              "Uso WhatsApp Business, posso continuare a usare l'app?",
+              "Cos'è Coexistence?",
+              "Può scrivere automaticamente a tutti i miei contatti?",
+              "Faccio Facebook Ads: può chiamare i lead?",
+              "Può chiamare lead che non hanno chiesto di essere ricontattati?",
+              "Sono parrucchiere, cosa può fare ClerkAI per me?",
+              "Sono un property manager, cosa può fare ClerkAI per me?",
+              "Può prenotare appuntamenti su Google Calendar?",
+              "Registra le chiamate?",
+              "Come gestite privacy, consenso e opt-out?",
+              "Se il cliente vuole parlare con una persona, come funziona il passaggio a un umano?",
+          ]
+
+          def post(url, payload):
+              body = json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  url,
+                  data=body,
+                  method='POST',
+                  headers={
+                      'Content-Type': 'application/json',
+                      'Origin': origin,
+                      'User-Agent': ua,
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=90) as resp:
+                      return resp.status, json.loads(resp.read().decode('utf-8'))
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode('utf-8', errors='replace')
+                  try:
+                      data = json.loads(raw)
+                  except Exception:
+                      data = {'raw': raw[:1000]}
+                  return exc.code, data
+
+          sessions = []
+          bootstrap_url = f"{base}/site-chat-bootstrap?key={key}"
+          for i in range(4):
+              status, data = post(bootstrap_url, {})
+              if status != 201 or not data.get('session_id') or not data.get('session_token'):
+                  print(f"BOOTSTRAP_{i+1}=FAIL HTTP={status} BODY={json.dumps(data, ensure_ascii=False)[:800]}")
+                  sys.exit(1)
+              sessions.append((data['session_id'], data['session_token']))
+              print(f"BOOTSTRAP_{i+1}=PASS SESSION_ID={data['session_id']}")
+
+          message_url = f"{base}/site-chat-message?key={key}"
+          failures = []
+          results = []
+          fallback_fragments = [
+              "In questo momento il servizio AI non è disponibile",
+              "Chat service temporarily unavailable",
+          ]
+
+          for idx, question in enumerate(questions, start=1):
+              session_id, session_token = sessions[(idx - 1) // 5]
+              payload = {
+                  'session_id': session_id,
+                  'session_token': session_token,
+                  'message': question,
+                  'consent': True,
+                  'action': 'message',
+              }
+              status, data = post(message_url, payload)
+              answer = str(data.get('answer') or '')
+              provider = data.get('provider_status')
+              sources = data.get('sources') or []
+              bad_fallback = any(fragment.lower() in answer.lower() for fragment in fallback_fragments)
+              ok = status == 200 and provider == 'ok' and len(answer.strip()) >= 20 and not bad_fallback
+              results.append({
+                  'q': idx,
+                  'status': status,
+                  'provider': provider,
+                  'answer_len': len(answer),
+                  'sources': len(sources),
+                  'ok': ok,
+              })
+              print(f"Q{idx:02d}={'PASS' if ok else 'FAIL'} HTTP={status} PROVIDER={provider} ANSWER_LEN={len(answer)} SOURCES={len(sources)}")
+              if not ok:
+                  failures.append((idx, status, provider, answer[:500]))
+              time.sleep(0.5)
+
+          print(f"E2E_REQUESTS={len(results)}")
+          print(f"E2E_PASS={sum(1 for r in results if r['ok'])}")
+          print(f"E2E_FAIL={len(failures)}")
+          if failures:
+              for idx, status, provider, snippet in failures:
+                  print(f"FAIL_DETAIL_Q{idx:02d} HTTP={status} PROVIDER={provider} ANSWER={json.dumps(snippet, ensure_ascii=False)}")
+              sys.exit(1)
+          print("OPENAI_CHATBOT_E2E20_HTTP=PASS")
+          PY
