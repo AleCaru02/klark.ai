@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for fn in google-auth-start google-auth-callback ai-book-appointment google-calendar-sync calendar-watch; do
+          for fn in google-auth-start google-auth-callback google-calendars google-auth-disconnect ai-book-appointment google-calendar-sync calendar-watch; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
           done
 
