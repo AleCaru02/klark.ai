@@ -17,7 +17,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - name: Probe accessible chat models safely
+      - name: Inspect granted model IDs safely
         shell: bash
         run: |
           set -euo pipefail
@@ -29,50 +29,29 @@ jobs:
           import urllib.error
 
           key = os.environ['OPENAI_API_KEY']
-          headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
-
-          def call(req):
-              try:
-                  with urllib.request.urlopen(req, timeout=45) as resp:
-                      raw = resp.read().decode('utf-8', errors='replace')
-                      try: data = json.loads(raw)
-                      except Exception: data = {}
-                      return resp.status, data
-              except urllib.error.HTTPError as exc:
-                  raw = exc.read().decode('utf-8', errors='replace')
-                  try: data = json.loads(raw)
-                  except Exception: data = {'error': {'message': raw[:500]}}
-                  return exc.code, data
-
-          s, models = call(urllib.request.Request('https://api.openai.com/v1/models', headers=headers, method='GET'))
-          print(f"MODELS_HTTP={s}")
-          if s != 200:
-              e = models.get('error') or {}
+          req = urllib.request.Request(
+              'https://api.openai.com/v1/models',
+              headers={'Authorization': f'Bearer {key}'},
+              method='GET',
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=45) as resp:
+                  data = json.loads(resp.read().decode('utf-8'))
+                  print(f"MODELS_HTTP={resp.status}")
+          except urllib.error.HTTPError as exc:
+              raw = exc.read().decode('utf-8', errors='replace')
+              try: data = json.loads(raw)
+              except Exception: data = {'error': {'message': raw[:500]}}
+              e = data.get('error') or {}
+              print(f"MODELS_HTTP={exc.code}")
               print(f"MODELS_ERROR_CODE={e.get('code')}")
               print(f"MODELS_ERROR_MESSAGE={str(e.get('message') or '')[:500]}")
               raise SystemExit(1)
 
-          available = {m.get('id') for m in models.get('data', []) if m.get('id')}
-          candidates = ['gpt-5.1','gpt-5','gpt-4.1','gpt-4.1-mini','gpt-4o','gpt-4o-mini']
-          passed = []
-          for model in candidates:
-              if model not in available:
-                  print(f"MODEL_{model}=NOT_LISTED")
-                  continue
-              payload = json.dumps({
-                  'model': model,
-                  'messages': [{'role':'user','content':'Rispondi solo con OK.'}],
-                  'max_completion_tokens': 20,
-              }).encode('utf-8')
-              req = urllib.request.Request('https://api.openai.com/v1/chat/completions', data=payload, headers=headers, method='POST')
-              status, data = call(req)
-              if status == 200:
-                  print(f"MODEL_{model}=PASS")
-                  passed.append(model)
-              else:
-                  e = data.get('error') or {}
-                  print(f"MODEL_{model}=FAIL HTTP={status} CODE={e.get('code')} TYPE={e.get('type')} MESSAGE={str(e.get('message') or '')[:300]}")
-          print('ACCESSIBLE_CHAT_MODELS=' + ','.join(passed))
-          if not passed:
-              raise SystemExit(1)
+          ids = sorted({m.get('id') for m in data.get('data', []) if m.get('id')})
+          relevant = [m for m in ids if m.startswith(('gpt-', 'o1', 'o3', 'o4'))]
+          print(f"MODEL_COUNT={len(ids)}")
+          print(f"CHAT_LIKE_MODEL_COUNT={len(relevant)}")
+          for model in relevant[:100]:
+              print(f"GRANTED_MODEL={model}")
           PY
