@@ -23,6 +23,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: ipazbzctivqquwndifxh
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_CHAT_MODEL: gpt-5.4-mini
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       APP_URL: https://clerkai-preview-alecaru02.vercel.app
@@ -92,6 +93,7 @@ jobs:
           umask 077
           {
             printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'OPENAI_CHAT_MODEL=%s\n' "$OPENAI_CHAT_MODEL"
             printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
             printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
             printf 'APP_URL=%s\n' "$APP_URL"
