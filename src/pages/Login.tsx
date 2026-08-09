@@ -23,14 +23,13 @@ export default function Login() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (!backendConfigured) { setError("Accesso non disponibile: il backend non è configurato."); return; }
+    if (!backendConfigured) { setError("Accesso temporaneamente non disponibile. Riprova tra poco."); return; }
     setIsSubmitting(true);
     try {
       const { error: signInError, destination } = await signIn(email.trim(), password);
       if (signInError) {
         if (signInError.message.includes("Invalid login credentials")) setError("Email o password non corretti.");
         else if (signInError.message.includes("Email not confirmed")) setError("Email non confermata. Controlla la tua casella di posta.");
-        else if (signInError.message.includes("backend")) setError(signInError.message);
         else setError("Accesso non riuscito. Riprova oppure contatta il supporto.");
         return;
       }
@@ -48,7 +47,7 @@ export default function Login() {
           <div className="mb-8 flex items-center gap-2.5"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-sky-700 shadow-sm"><Phone className="h-5 w-5" aria-hidden="true" /></div><span className="text-xl font-bold text-slate-950">{product.name}</span></div>
           <div className="mb-8"><h1 id="login-title" className="mb-2 text-2xl font-bold text-slate-950">Accedi al tuo account</h1><p className="text-slate-600">Inserisci email e password. Dopo l'accesso verrai portato automaticamente nella tua area.</p></div>
 
-          {!backendConfigured && <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status"><ServerOff className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" /><div><p className="text-sm font-medium text-slate-900">Accesso temporaneamente non disponibile</p><p className="mt-1 text-xs text-slate-500">Il sito pubblico resta consultabile.</p></div></div>}
+          {!backendConfigured && <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status"><ServerOff className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" /><div><p className="text-sm font-medium text-slate-900">Accesso temporaneamente non disponibile</p><p className="mt-1 text-xs text-slate-500">Riprova tra poco. Il sito pubblico resta consultabile.</p></div></div>}
           {error && <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4" role="alert"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden="true" /><p className="text-sm text-red-700">{error}</p></div>}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -69,7 +68,7 @@ export default function Login() {
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-sky-700">Area riservata</p>
           <h2 className="mt-4 text-3xl font-bold tracking-[-0.045em] text-slate-950">Un solo accesso. La dashboard corretta.</h2>
           <p className="mt-4 text-base leading-7 text-slate-600">I clienti entrano nella propria area operativa. Gli amministratori della piattaforma accedono direttamente alla gestione autorizzata.</p>
-          <div className="mt-6 space-y-2.5">{["Permessi verificati dal backend", "Area cliente e piattaforma separate", "Nessuna registrazione pubblica"].map((item) => <div key={item} className="flex items-center gap-2 rounded-xl bg-sky-50/70 p-3 text-sm text-slate-700"><CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />{item}</div>)}</div>
+          <div className="mt-6 space-y-2.5">{["Permessi verificati in modo sicuro", "Area cliente e piattaforma separate", "Nessuna registrazione pubblica"].map((item) => <div key={item} className="flex items-center gap-2 rounded-xl bg-sky-50/70 p-3 text-sm text-slate-700"><CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />{item}</div>)}</div>
         </div>
       </aside>
     </main>
