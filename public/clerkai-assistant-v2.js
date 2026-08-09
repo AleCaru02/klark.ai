@@ -6,7 +6,7 @@
   const FUNCTIONS_BASE = 'https://ipazbzctivqquwndifxh.supabase.co/functions/v1';
   const PROJECT_REF = 'ipazbzctivqquwndifxh';
   const WIDGET_KEY = '21332d02-8c76-458b-9961-267db3044205';
-  const state = { sessionId: '', sessionToken: '', bootstrapPromise: null };
+  const state = { sessionId: '', sessionToken: '', bootstrapPromise: null, mode: null };
 
   const isAppArea = () => /^\/(app|admin)(?:\/|$)/.test(window.location.pathname);
 
@@ -25,6 +25,10 @@
       return '';
     }
     return '';
+  }
+
+  function isAuthenticatedArea() {
+    return isAppArea() && Boolean(getAccessToken());
   }
 
   async function bootstrapPublic() {
@@ -77,7 +81,7 @@
   }
 
   function safeFallback() {
-    if (isAppArea() && getAccessToken()) {
+    if (isAuthenticatedArea()) {
       return {
         text: 'Non riesco a leggere in questo momento lo stato aggiornato del tuo account. Riprova tra poco: nell’area riservata devo verificare il piano e la configurazione reale prima di dirti che una funzione è disponibile.',
         links: [{ label: 'Vai alla panoramica', href: '/app' }],
@@ -100,17 +104,26 @@
     }
   }
 
-  const authenticated = isAppArea() && Boolean(getAccessToken());
-  const title = authenticated ? 'Assistente ClerkAI' : 'Assistente ClerkAI';
-  const subtitle = authenticated
-    ? 'Verifico piano, configurazione e prossimi passaggi del tuo account'
-    : 'Informazioni su funzioni, piani, casi d’uso e sicurezza';
-  const welcome = authenticated
-    ? 'Posso controllare il tuo piano e distinguere cosa è incluso, cosa è già configurato e cosa manca. Chiedimi, ad esempio, come collegare Google Calendar o perché una funzione non è disponibile.'
-    : 'Posso spiegarti cosa fa ClerkAI, cosa è disponibile nella fase attuale, i piani e come si applica alla tua attività.';
-  const suggestions = authenticated
-    ? ['Cosa include il mio piano?', 'Come collego Google Calendar?', 'Cosa devo ancora configurare?', 'Perché una funzione non è disponibile?']
-    : ['Come funziona?', 'Quanto costa?', 'Può servire alla mia attività?', 'Quali funzioni sono attive oggi?'];
+  function getContextCopy(authenticated) {
+    if (authenticated) {
+      return {
+        eyebrow: 'Area riservata',
+        subtitle: 'Verifico piano, configurazione e prossimi passaggi del tuo account',
+        welcome: 'Posso controllare il tuo piano e distinguere cosa è incluso, cosa è già configurato e cosa manca. Chiedimi, ad esempio, come collegare Google Calendar o perché una funzione non è disponibile.',
+        placeholder: 'Chiedi del tuo piano o configurazione…',
+        note: 'L’assistente usa lo stato reale del tuo account. Non inserire password, documenti o dati sensibili.',
+        suggestions: ['Cosa include il mio piano?', 'Come collego Google Calendar?', 'Cosa devo ancora configurare?', 'Perché una funzione non è disponibile?'],
+      };
+    }
+    return {
+      eyebrow: 'Assistente AI',
+      subtitle: 'Informazioni su funzioni, piani, casi d’uso e sicurezza',
+      welcome: 'Posso spiegarti cosa fa ClerkAI, cosa è disponibile nella fase attuale, i piani e come si applica alla tua attività.',
+      placeholder: 'Scrivi la tua domanda…',
+      note: 'Risposte basate sulle informazioni ufficiali ClerkAI. Non inserire password, documenti o dati sensibili.',
+      suggestions: ['Come funziona?', 'Quanto costa?', 'Può servire alla mia attività?', 'Quali funzioni sono attive oggi?'],
+    };
+  }
 
   const host = document.createElement('div');
   host.id = 'clerkai-assistant-host';
@@ -145,13 +158,13 @@
   eyebrow.className = 'eyebrow';
   const dot = document.createElement('span');
   dot.className = 'status';
-  eyebrow.append(dot, document.createTextNode(authenticated ? 'Area riservata' : 'Assistente AI'));
+  const eyebrowLabel = document.createElement('span');
+  eyebrow.append(dot, eyebrowLabel);
   const titleEl = document.createElement('div');
   titleEl.className = 'title';
-  titleEl.textContent = title;
+  titleEl.textContent = 'Assistente ClerkAI';
   const subtitleEl = document.createElement('div');
   subtitleEl.className = 'subtitle';
-  subtitleEl.textContent = subtitle;
   headerCopy.append(eyebrow, titleEl, subtitleEl);
   const close = document.createElement('button');
   close.className = 'close';
@@ -164,14 +177,6 @@
   messages.className = 'messages';
   const suggestionsEl = document.createElement('div');
   suggestionsEl.className = 'suggestions';
-  suggestions.forEach((text) => {
-    const chip = document.createElement('button');
-    chip.className = 'chip';
-    chip.type = 'button';
-    chip.textContent = text;
-    chip.addEventListener('click', () => submitQuestion(text));
-    suggestionsEl.appendChild(chip);
-  });
 
   const composer = document.createElement('div');
   composer.className = 'composer';
@@ -182,7 +187,6 @@
   input.type = 'text';
   input.maxLength = 1500;
   input.autocomplete = 'off';
-  input.placeholder = authenticated ? 'Chiedi del tuo piano o configurazione…' : 'Scrivi la tua domanda…';
   const send = document.createElement('button');
   send.className = 'send';
   send.type = 'submit';
@@ -190,9 +194,6 @@
   form.append(input, send);
   const note = document.createElement('div');
   note.className = 'note';
-  note.textContent = authenticated
-    ? 'L’assistente usa lo stato reale del tuo account. Non inserire password, documenti o dati sensibili.'
-    : 'Risposte basate sulle informazioni ufficiali ClerkAI. Non inserire password, documenti o dati sensibili.';
   composer.append(form, note);
   panel.append(header, messages, suggestionsEl, composer);
 
@@ -204,9 +205,10 @@
   launcher.appendChild(iconBubble());
 
   root.append(style, panel, launcher);
-  addAssistant(welcome, []);
+  syncContext(true);
 
   launcher.addEventListener('click', () => {
+    syncContext(false);
     const open = !panel.classList.contains('open');
     panel.classList.toggle('open', open);
     launcher.setAttribute('aria-expanded', String(open));
@@ -219,6 +221,7 @@
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    syncContext(false);
     submitQuestion(input.value);
   });
   document.addEventListener('keydown', (event) => {
@@ -228,6 +231,37 @@
       launcher.focus();
     }
   });
+  window.addEventListener('popstate', () => syncContext(false));
+  window.addEventListener('storage', () => syncContext(false));
+  window.setInterval(() => syncContext(false), 750);
+
+  function renderSuggestions(items) {
+    suggestionsEl.replaceChildren();
+    items.forEach((text) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.type = 'button';
+      chip.textContent = text;
+      chip.addEventListener('click', () => submitQuestion(text));
+      suggestionsEl.appendChild(chip);
+    });
+  }
+
+  function syncContext(force) {
+    const authenticated = isAuthenticatedArea();
+    const mode = authenticated ? 'authenticated' : 'public';
+    if (!force && state.mode === mode) return;
+
+    state.mode = mode;
+    const copy = getContextCopy(authenticated);
+    eyebrowLabel.textContent = copy.eyebrow;
+    subtitleEl.textContent = copy.subtitle;
+    input.placeholder = copy.placeholder;
+    note.textContent = copy.note;
+    renderSuggestions(copy.suggestions);
+    messages.replaceChildren();
+    addAssistant(copy.welcome, []);
+  }
 
   async function submitQuestion(value) {
     const question = String(value || '').trim();
