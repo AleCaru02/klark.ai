@@ -1,412 +1,375 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  AlertCircle,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Unplug,
+} from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, CheckCircle2, XCircle, AlertTriangle, RefreshCw, Info } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface DebugData {
+interface CalendarItem {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+interface CalendarStatus {
   connected: boolean;
-  reconnect_required?: boolean;
+  calendars: CalendarItem[];
   error?: string;
-  refresh_error?: string;
-  google_error?: string;
-  calendars?: { id: string; summary: string; primary: boolean }[];
-  debug?: {
-    redirect_uri: string;
-    client_id_partial: string;
-    supabase_url: string;
-    token_exists: boolean;
-    token_scope: string | null;
-    token_expires_at: string | null;
-  };
 }
 
-const REQUIRED_REDIRECT_URI = "https://ipazbzctivqquwndifxh.supabase.co/functions/v1/google-auth-callback";
+type ActionState = "idle" | "connecting" | "disconnecting" | "refreshing";
 
-function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-      <span className="text-muted-foreground min-w-[200px]">{label}:</span>
-      <span className={`break-all text-foreground ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
-    </div>
-  );
-}
-
-type FlowStep = "not_started" | "started" | "callback_received" | "token_exchange" | "connected";
-
-function deriveFlowState(logs: any[], dbConnected: boolean): {
-  step: FlowStep;
-  lastError?: string;
-  lastErrorDetail?: string;
-  evidence: Record<string, boolean>;
-} {
-  const evidence: Record<string, boolean> = {
-    start: logs.some(l => l.action === "google_oauth.start"),
-    callback_received: logs.some(l => l.action === "google_oauth.callback_received" && l.payload_json?.has_code === true),
-    callback_ping: logs.some(l => l.action === "google_oauth.callback_ping"),
-    callback_no_code: logs.some(l => l.action === "google_oauth.callback_received" && l.payload_json?.has_code === false),
-    token_exchange_started: logs.some(l => l.action === "google_oauth.token_exchange_started"),
-    token_exchange_success: logs.some(l => l.action === "google_oauth.token_exchange_success"),
-    token_exchange_failed: logs.some(l => l.action === "google_oauth.token_exchange_failed"),
-    calendar_test_ok: logs.some(l => l.action === "google_oauth.calendar_test_ok"),
-    connected: logs.some(l => l.action === "google_oauth.connected"),
-    oauth_error: logs.some(l => l.action === "google_oauth.error"),
-  };
-
-  if (dbConnected || evidence.connected || evidence.token_exchange_success) return { step: "connected", evidence };
-  if (evidence.token_exchange_failed) {
-    const failLog = logs.find(l => l.action === "google_oauth.token_exchange_failed");
-    return { step: "token_exchange", lastError: "token_exchange_failed", lastErrorDetail: failLog?.payload_json?.google_error_description || failLog?.payload_json?.google_error, evidence };
-  }
-  if (evidence.token_exchange_started) return { step: "token_exchange", evidence };
-  if (evidence.callback_received) return { step: "callback_received", evidence };
-  if (evidence.oauth_error) {
-    const errLog = logs.find(l => l.action === "google_oauth.error");
-    return { step: "callback_received", lastError: errLog?.payload_json?.error, lastErrorDetail: errLog?.payload_json?.error_description, evidence };
-  }
-  if (evidence.start) return { step: "started", evidence };
-  return { step: "not_started", evidence };
-}
+const friendlyErrors: Record<string, { title: string; description: string }> = {
+  oauth_denied: {
+    title: "Autorizzazione non completata",
+    description: "L'accesso a Google Calendar non è stato autorizzato. Puoi riprovare quando vuoi.",
+  },
+  access_denied: {
+    title: "Account Google non ancora autorizzato",
+    description:
+      "La connessione è ancora in fase di collaudo. Questo account Google deve essere autorizzato per il test prima di poter completare il collegamento.",
+  },
+  invalid_callback: {
+    title: "Collegamento non completato",
+    description: "Google non ha restituito tutti i dati necessari. Riprova il collegamento.",
+  },
+  invalid_or_expired_state: {
+    title: "Sessione di collegamento scaduta",
+    description: "Per sicurezza la richiesta di collegamento è scaduta. Avviala nuovamente da questa pagina.",
+  },
+  redirect_mismatch: {
+    title: "Configurazione Google da completare",
+    description: "Il collegamento non può essere concluso finché la configurazione OAuth non è allineata.",
+  },
+  token_exchange_failed: {
+    title: "Google Calendar non è stato collegato",
+    description: "L'autorizzazione è arrivata, ma la connessione non è stata finalizzata. Riprova; se persiste, serve un controllo della configurazione.",
+  },
+  insufficient_scope: {
+    title: "Permessi Google incompleti",
+    description: "Per usare agenda e appuntamenti servono i permessi richiesti durante il collegamento. Riprova e autorizza le voci richieste.",
+  },
+  refresh_token_missing: {
+    title: "Riconnessione necessaria",
+    description: "Google non ha fornito l'autorizzazione necessaria per mantenere il calendario collegato. Riprova il collegamento.",
+  },
+  oauth_callback_failed: {
+    title: "Connessione non completata",
+    description: "Si è verificato un problema durante il collegamento. Riprova tra poco.",
+  },
+};
 
 export default function GoogleCalendarDebug() {
   const { membership } = useAuth();
   const tenantId = membership?.tenant_id;
-  const [data, setData] = useState<DebugData | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [status, setStatus] = useState<CalendarStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [authStartDebug, setAuthStartDebug] = useState<any>(null);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [searchParams] = useSearchParams();
+  const [action, setAction] = useState<ActionState>("idle");
+  const [pageError, setPageError] = useState<string | null>(null);
 
-  const oauthError = searchParams.get("error");
-  const oauthErrorDesc = searchParams.get("error_description");
-  const oauthDetail = searchParams.get("detail");
-  const oauthSuccess = searchParams.get("success");
-
-  const currentOrigin = window.location.origin;
-  const UX_MODE = "redirect";
-
-  const fetchDebug = async () => {
-    if (!tenantId) return;
-    setLoading(true);
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session?.access_token) return;
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendars?tenant_id=${tenantId}&debug=true`,
-        { headers: { Authorization: `Bearer ${session.session.access_token}`, "Content-Type": "application/json" } }
-      );
-      setData(await response.json());
-    } catch (err) {
-      setData({ connected: false, error: String(err) });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchAuthStartDebug = async () => {
-    if (!tenantId) return;
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session?.access_token) return;
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-auth-start?tenant_id=${tenantId}`,
-        { headers: { Authorization: `Bearer ${session.session.access_token}`, "Content-Type": "application/json" } }
-      );
-      const result = await response.json();
-      setAuthStartDebug(result.debug || null);
-      setAuthUrl(result.auth_url || null);
-    } catch {
-      // Debug-only request: failure must not block the normal Calendar UI.
-    }
-  };
-
-  const fetchAuditLogs = async () => {
-    if (!tenantId) return;
-    // Fetch both tenant-specific AND tenant_id=NULL callback events
-    const { data: tenantLogs } = await supabase
-      .from("audit_log")
-      .select("action, payload_json, created_at, tenant_id")
-      .eq("tenant_id", tenantId)
-      .like("action", "google%")
-      .order("created_at", { ascending: false })
-      .limit(20);
-    const { data: nullLogs } = await supabase
-      .from("audit_log")
-      .select("action, payload_json, created_at, tenant_id")
-      .is("tenant_id", null)
-      .like("action", "google%")
-      .order("created_at", { ascending: false })
-      .limit(20);
-    // Merge and sort by created_at descending
-    const all = [...(tenantLogs || []), ...(nullLogs || [])];
-    all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    setAuditLogs(all.slice(0, 30));
-  };
-
-  useEffect(() => {
-    fetchDebug();
-    fetchAuthStartDebug();
-    fetchAuditLogs();
-  }, [tenantId]);
-
-  const flow = deriveFlowState(auditLogs, data?.connected ?? false);
-
-  const StatusIcon = ({ ok }: { ok: boolean | undefined }) =>
-    ok ? <CheckCircle2 className="h-5 w-5 text-green-500" /> : <XCircle className="h-5 w-5 text-destructive" />;
-
-  const StepIndicator = ({ label, reached, active, error }: { label: string; reached: boolean; active?: boolean; error?: boolean }) => (
-    <div className="flex items-center gap-2">
-      {error ? <XCircle className="h-4 w-4 text-destructive shrink-0" /> :
-       reached ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" /> :
-       active ? <Loader2 className="h-4 w-4 animate-spin text-yellow-500 shrink-0" /> :
-       <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />}
-      <span className={`text-sm ${reached ? "font-medium" : "text-muted-foreground"}`}>{label}</span>
-    </div>
+  const oauthErrorCode = searchParams.get("error");
+  const oauthSuccess = searchParams.get("success") === "true";
+  const oauthError = useMemo(
+    () => (oauthErrorCode ? friendlyErrors[oauthErrorCode] ?? {
+      title: "Connessione non completata",
+      description: "Il collegamento a Google Calendar non è andato a buon fine. Riprova dalla pagina.",
+    } : null),
+    [oauthErrorCode],
   );
 
-  const refreshAll = () => { fetchDebug(); fetchAuthStartDebug(); fetchAuditLogs(); };
+  const getAccessToken = useCallback(async () => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.access_token) throw new Error("Sessione scaduta. Accedi nuovamente.");
+    return data.session.access_token;
+  }, []);
+
+  const loadStatus = useCallback(async (showRefreshState = false) => {
+    if (!tenantId) return;
+    if (showRefreshState) setAction("refreshing");
+    setPageError(null);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendars`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          response.status === 409
+            ? "La connessione Google deve essere rinnovata. Disconnetti e collega nuovamente il calendario."
+            : "Non riesco a verificare lo stato del calendario in questo momento.",
+        );
+      }
+      setStatus({
+        connected: payload.connected === true,
+        calendars: Array.isArray(payload.calendars) ? payload.calendars : [],
+        error: typeof payload.error === "string" ? payload.error : undefined,
+      });
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Impossibile verificare Google Calendar.");
+    } finally {
+      setLoading(false);
+      if (showRefreshState) setAction("idle");
+    }
+  }, [getAccessToken, tenantId]);
+
+  useEffect(() => {
+    void loadStatus(false);
+  }, [loadStatus]);
+
+  useEffect(() => {
+    if (!oauthSuccess) return;
+    void loadStatus(false);
+    const next = new URLSearchParams(searchParams);
+    next.delete("success");
+    setSearchParams(next, { replace: true });
+  }, [loadStatus, oauthSuccess, searchParams, setSearchParams]);
+
+  const connectGoogle = async () => {
+    if (!tenantId || action !== "idle") return;
+    setAction("connecting");
+    setPageError(null);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-auth-start?tenant_id=${encodeURIComponent(tenantId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || typeof payload.auth_url !== "string") {
+        throw new Error("Non è stato possibile avviare il collegamento con Google.");
+      }
+      window.location.assign(payload.auth_url);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Impossibile avviare Google Calendar.");
+      setAction("idle");
+    }
+  };
+
+  const disconnectGoogle = async () => {
+    if (action !== "idle") return;
+    setAction("disconnecting");
+    setPageError(null);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-auth-disconnect`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+      if (!response.ok) throw new Error("Non è stato possibile scollegare Google Calendar.");
+      setStatus({ connected: false, calendars: [] });
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Impossibile scollegare Google Calendar.");
+    } finally {
+      setAction("idle");
+    }
+  };
+
+  const primaryCalendar = status?.calendars.find((calendar) => calendar.primary);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Google Calendar — Debug</h1>
-          <p className="text-muted-foreground text-sm">Diagnostica connessione OAuth</p>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-6 w-6 text-sky-600" />
+            <h1 className="text-2xl font-bold tracking-tight">Google Calendar</h1>
+          </div>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Collega l'agenda usata dalla tua attività per permettere a ClerkAI di verificare gli orari disponibili e gestire gli appuntamenti secondo le regole configurate.
+          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={refreshAll} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Aggiorna
-        </Button>
+        {!loading && status?.connected && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadStatus(true)}
+            disabled={action !== "idle"}
+          >
+            {action === "refreshing" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Aggiorna stato
+          </Button>
+        )}
       </div>
 
-      {/* OAuth Result from URL params */}
-      {(oauthError || oauthSuccess) && (
-        <Card className={oauthError ? "border-destructive" : "border-green-500"}>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              {oauthError ? <XCircle className="h-5 w-5 text-destructive" /> : <CheckCircle2 className="h-5 w-5 text-green-500" />}
-              Risultato OAuth
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {oauthSuccess && <p className="text-green-600 font-semibold">✅ Connessione riuscita!</p>}
-            {oauthError && (
-              <>
-                <Row label="error" value={oauthError} />
-                {oauthErrorDesc && <Row label="error_description" value={oauthErrorDesc} />}
-                {oauthDetail && <Row label="detail" value={oauthDetail} />}
-                {oauthError === "token_exchange_failed" && (
-                  <div className="mt-2 p-3 bg-destructive/10 rounded-md text-destructive flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                    <span>Probabile <strong>client secret errato</strong> o <strong>redirect_uri mismatch</strong>. Controlla gli audit log sotto per il dettaglio Google.</span>
-                  </div>
-                )}
-                {oauthError === "access_denied" && (
-                  <div className="mt-2 p-3 bg-destructive/10 rounded-md text-destructive flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                    <span>Consenso negato o app in <strong>Testing</strong> senza l'email nei Test Users.</span>
-                  </div>
-                )}
-                {oauthError === "redirect_uri_mismatch" && (
-                  <div className="mt-2 p-3 bg-destructive/10 rounded-md text-destructive flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                    <span>Il redirect_uri non corrisponde a quelli autorizzati nella Google Cloud Console.</span>
-                  </div>
-                )}
-              </>
-            )}
+      {oauthError && (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <CardContent className="flex gap-3 p-4 sm:p-5">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <div className="space-y-1">
+              <p className="font-semibold text-amber-950">{oauthError.title}</p>
+              <p className="text-sm text-amber-900/80">{oauthError.description}</p>
+            </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Flow Status — single source of truth */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Stato flusso OAuth</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
-          <div className="space-y-1">
-            <Row label="ux_mode" value={UX_MODE} />
-            <Row label="Browser origin" value={currentOrigin} />
-            <Row label="Redirect URI" value={data?.debug?.redirect_uri || authStartDebug?.redirect_uri || REQUIRED_REDIRECT_URI} />
-          </div>
-
-          {/* Step-by-step progress — evidence-based from audit_log */}
-          <div className="pt-3 border-t space-y-2">
-            <p className="font-medium text-xs uppercase text-muted-foreground tracking-wider">Evidenze reali (audit_log)</p>
-            <StepIndicator label="1. OAuth avviato (google_oauth.start)" reached={flow.evidence.start} />
-            <StepIndicator
-              label="2. Callback raggiunto con code"
-              reached={flow.evidence.callback_received}
-              error={flow.evidence.oauth_error}
-            />
-            {flow.evidence.callback_no_code && !flow.evidence.callback_received && (
-              <div className="ml-6 text-xs text-yellow-600">
-                ⚠️ Callback raggiunto ma SENZA code (solo ping o errore Google)
-              </div>
-            )}
-            <StepIndicator
-              label="3. Token exchange tentato"
-              reached={flow.evidence.token_exchange_started}
-              error={flow.evidence.token_exchange_failed}
-            />
-            <StepIndicator label="4. Token exchange riuscito" reached={flow.evidence.token_exchange_success} />
-            <StepIndicator label="5. Calendar test OK" reached={flow.evidence.calendar_test_ok} />
-            <StepIndicator label="6. Connesso" reached={flow.evidence.connected || (data?.connected ?? false)} />
-          </div>
-
-          {/* Error detail if stuck */}
-          {flow.lastError && (
-            <div className="p-3 bg-destructive/10 rounded-md text-destructive text-xs">
-              <p className="font-medium">Errore: {flow.lastError}</p>
-              {flow.lastErrorDetail && <p className="mt-1">{flow.lastErrorDetail}</p>}
-            </div>
-          )}
-
-          {/* Callback never reached with code */}
-          {flow.evidence.start && !flow.evidence.callback_received && !flow.evidence.connected && (
-            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md space-y-2">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-yellow-600 shrink-0" />
-                <span className="font-medium">Il callback non ha ricevuto un code da Google</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {flow.evidence.callback_ping
-                  ? "✅ Il callback è raggiungibile (ping OK). Ma Google non sta redirigendo dopo il consenso."
-                  : "⚠️ Nessun ping registrato. Verifica che la function sia deployata."}
-              </p>
-              <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1">
-                <li>App in Testing? → Aggiungi la tua email nei <strong>Test Users</strong></li>
-                <li>Google Calendar API abilitata?</li>
-                <li>Redirect URI: <code className="bg-muted px-1 rounded">{REQUIRED_REDIRECT_URI}</code></li>
-                <li>Client ID e Secret dello stesso OAuth Client?</li>
-              </ul>
-            </div>
-          )}
-
-          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md">
-            <div className="flex items-start gap-2">
-              <Info className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
-              <p className="text-xs text-muted-foreground">
-                Flusso <strong>redirect</strong>: non servono Authorized JavaScript Origins. Solo il Redirect URI sopra.
-              </p>
-            </div>
-          </div>
-
-          {authUrl && (
+      {pageError && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="flex gap-3 p-4 sm:p-5">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
             <div>
-              <span className="text-muted-foreground text-xs">Auth URL generato:</span>
-              <pre className="bg-muted p-2 rounded text-xs mt-1 overflow-x-auto whitespace-pre-wrap break-all">{authUrl}</pre>
+              <p className="font-semibold">Impossibile completare l'operazione</p>
+              <p className="mt-1 text-sm text-muted-foreground">{pageError}</p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-muted-foreground py-8">
-          <Loader2 className="h-5 w-5 animate-spin" /> Caricamento...
-        </div>
-      ) : (
-        <>
-          {/* Connection Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Stato connessione (DB)</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2">
-                <StatusIcon ok={data?.connected} />
-                <span className="font-medium">{data?.connected ? "Connesso" : "Non connesso"}</span>
-                {data?.reconnect_required && <Badge variant="destructive">Riconnessione necessaria</Badge>}
+        <Card>
+          <CardContent className="flex min-h-44 items-center justify-center gap-3 p-8 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Verifico lo stato del calendario…
+          </CardContent>
+        </Card>
+      ) : status?.connected ? (
+        <Card className="border-emerald-200">
+          <CardHeader className="pb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Google Calendar collegato</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    La connessione è attiva. Puoi ora scegliere e usare i calendari disponibili per il flusso appuntamenti.
+                  </p>
+                </div>
               </div>
-              {data?.error && (
-                <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-md">
-                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                  <span>{data.error}</span>
-                </div>
-              )}
-              {data?.debug && (
-                <div className="space-y-1 text-xs">
-                  <Row label="token_exists" value={String(data.debug.token_exists)} />
-                  <Row label="token_scope" value={data.debug.token_scope || "—"} />
-                  <Row label="token_expires_at" value={data.debug.token_expires_at || "—"} />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Calendars */}
-          {data?.connected && data?.calendars && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Calendari ({data.calendars.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.calendars.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nessun calendario trovato</p>
-                ) : (
-                  <ul className="space-y-1 text-sm">
-                    {data.calendars.map((cal) => (
-                      <li key={cal.id} className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        {cal.summary}
-                        {cal.primary && <Badge variant="secondary">Principale</Badge>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Audit Logs */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Audit Log (ultimi 20)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {auditLogs.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nessun log trovato.</p>
-              ) : (
-                <div className="space-y-3">
-                  {auditLogs.map((log, i) => (
-                    <div key={i} className="border rounded-md p-3 text-xs font-mono space-y-1">
-                      <div className="flex justify-between">
-                        <Badge variant="outline">{log.action}</Badge>
-                        <span className="text-muted-foreground">{new Date(log.created_at).toLocaleString("it-IT")}</span>
+              <Badge className="w-fit bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Collegato</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <p className="text-sm font-medium">Calendari disponibili</p>
+              {status.calendars.length ? (
+                <div className="mt-3 grid gap-2">
+                  {status.calendars.map((calendar) => (
+                    <div key={calendar.id} className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <CalendarDays className="h-4 w-4 shrink-0 text-sky-600" />
+                        <span className="truncate text-sm font-medium">{calendar.summary}</span>
                       </div>
-                      <pre className="whitespace-pre-wrap text-muted-foreground mt-1">
-                        {JSON.stringify(log.payload_json, null, 2)}
-                      </pre>
+                      {calendar.primary && <Badge variant="secondary">Principale</Badge>}
                     </div>
                   ))}
                 </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">La connessione è attiva, ma non sono stati trovati calendari modificabili.</p>
               )}
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* Checklist */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Checklist Google Cloud Console</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>OAuth Consent Screen → Se in "Testing", aggiungi la tua email come Test User</li>
-                <li>Credentials → OAuth 2.0 Client → Tipo: Web application</li>
-                <li>Authorized Redirect URIs: <code className="bg-muted px-1 rounded">{REQUIRED_REDIRECT_URI}</code></li>
-                <li>Authorized JavaScript Origins: <em>non necessarie</em></li>
-                <li>Google Calendar API abilitata</li>
-                <li>Client ID e Secret corrispondenti allo stesso OAuth Client</li>
-              </ol>
-            </CardContent>
-          </Card>
-        </>
+            {primaryCalendar && (
+              <div className="flex items-start gap-3 rounded-xl bg-sky-50 p-4 text-sm text-sky-950">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" />
+                <p>
+                  Il calendario principale rilevato è <strong>{primaryCalendar.summary}</strong>. Prima dell'attivazione definitiva verificheremo disponibilità, creazione appuntamenti e assenza di sovrapposizioni.
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground">
+                Scollegando Google Calendar, ClerkAI non potrà più leggere disponibilità o creare appuntamenti su Google.
+              </p>
+              <Button variant="outline" onClick={() => void disconnectGoogle()} disabled={action !== "idle"}>
+                {action === "disconnecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unplug className="mr-2 h-4 w-4" />}
+                Scollega
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Collega il calendario della tua attività</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-3 md:grid-cols-3">
+              {[
+                ["1", "Accedi con Google", "Scegli l'account che contiene il calendario usato per gli appuntamenti."],
+                ["2", "Autorizza il calendario", "Concedi solo i permessi necessari a leggere disponibilità e gestire eventi."],
+                ["3", "Verifica la connessione", "Torna qui e controlla che lo stato risulti Collegato prima del collaudo."],
+              ].map(([number, title, description]) => (
+                <div key={number} className="rounded-xl border p-4">
+                  <div className="mb-3 grid h-8 w-8 place-items-center rounded-full bg-sky-100 text-sm font-bold text-sky-700">{number}</div>
+                  <p className="font-semibold">{title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-start gap-3 rounded-xl border border-sky-100 bg-sky-50/60 p-4">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-sky-950">Connessione protetta</p>
+                <p className="text-sm text-sky-900/80">
+                  L'accesso viene autorizzato direttamente con Google. ClerkAI usa il collegamento soltanto per le funzioni calendario configurate e puoi scollegarlo in qualsiasi momento.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="max-w-xl text-xs text-muted-foreground">
+                Durante il collaudo l'accesso può essere limitato agli account Google autorizzati per il test. Se Google blocca l'accesso, non continuare a riprovare: l'account deve prima essere abilitato.
+              </p>
+              <Button size="lg" onClick={() => void connectGoogle()} disabled={!tenantId || action !== "idle"}>
+                {action === "connecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
+                Collega Google Calendar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Prima dell'attivazione</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 text-sm md:grid-cols-3">
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Disponibilità reali</p>
+              <p className="mt-1 text-muted-foreground">Verifichiamo che gli orari occupati non vengano proposti come liberi.</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Creazione appuntamenti</p>
+              <p className="mt-1 text-muted-foreground">Controlliamo che l'evento venga creato sul calendario corretto con i dati previsti.</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Nessuna sovrapposizione</p>
+              <p className="mt-1 text-muted-foreground">Eseguiamo il test di concorrenza prima di considerare il calendario pronto per utenti reali.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
