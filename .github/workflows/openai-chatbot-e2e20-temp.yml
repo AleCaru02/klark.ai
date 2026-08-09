@@ -54,14 +54,17 @@ jobs:
           trap - EXIT
           echo "CANDIDATE_OPENAI_SECRET_SET=true"
 
-      - name: Deploy chatbot functions from canonical main
+      - name: Verify active chatbot functions on fixed candidate
         shell: bash
         run: |
           set -euo pipefail
           test "$PROJECT_REF" = "ipazbzctivqquwndifxh"
-          supabase functions deploy site-chat-bootstrap --project-ref "$PROJECT_REF"
-          supabase functions deploy site-chat-message --project-ref "$PROJECT_REF"
-          echo "CHATBOT_FUNCTIONS_DEPLOYED=true"
+          out="$RUNNER_TEMP/functions.txt"
+          supabase functions list --project-ref "$PROJECT_REF" > "$out"
+          grep -q 'site-chat-bootstrap' "$out"
+          grep -q 'site-chat-message' "$out"
+          echo "CHATBOT_FUNCTIONS_ACTIVE=true"
+          rm -f "$out"
 
       - name: Run 20 real server-side chatbot requests
         shell: bash
