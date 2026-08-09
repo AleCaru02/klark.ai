@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Reimposta la password di ClerkAI</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fafc;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:28px 32px 18px;border-bottom:1px solid #e2e8f0;">
+                <div style="font-size:20px;font-weight:700;letter-spacing:-0.3px;color:#0f172a;">ClerkAI</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:30px 32px 32px;">
+                <h1 style="margin:0 0 14px;font-size:24px;line-height:1.25;color:#0f172a;">Reimposta la tua password</h1>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#475569;">
+                  Abbiamo ricevuto una richiesta per impostare una nuova password per il tuo account ClerkAI.
+                </p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;">
+                  <tr>
+                    <td style="background:#0f172a;border-radius:10px;">
+                      <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=recovery" style="display:inline-block;padding:13px 20px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">Scegli una nuova password</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 10px;font-size:13px;line-height:1.55;color:#64748b;">
+                  Se non hai richiesto tu questa modifica, ignora questa email. La password attuale resterà invariata.
+                </p>
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#94a3b8;">
+                  Per sicurezza, non inoltrare questa email e non condividere il link con altre persone.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
