@@ -24,7 +24,7 @@ interface DebugData {
   };
 }
 
-const REQUIRED_REDIRECT_URI = "https://dpabktkvdhaxwpyhehis.supabase.co/functions/v1/google-auth-callback";
+const REQUIRED_REDIRECT_URI = "https://ipazbzctivqquwndifxh.supabase.co/functions/v1/google-auth-callback";
 
 function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
   return (
