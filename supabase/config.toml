@@ -40,6 +40,13 @@ verify_jwt = false
 [functions.whatsapp-auth-callback]
 verify_jwt = false
 
+# Sync Calendar viene invocato sia da utenti autenticati sia dal webhook
+# calendar-watch tramite service-role. Il gateway resta aperto, mentre la
+# funzione applica internamente la verifica JWT utente/service-role e il
+# controllo tenant prima di eseguire qualunque sincronizzazione.
+[functions.google-calendar-sync]
+verify_jwt = false
+
 # Demo pubblica: accetta soltanto clip predefinite, limita le origini e
 # restituisce audio cacheato in Storage. Nessun testo arbitrario.
 [functions.public-voice-demo]
@@ -129,9 +136,6 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.google-calendar-reschedule]
-verify_jwt = true
-
-[functions.google-calendar-sync]
 verify_jwt = true
 
 [functions.google-calendars]

@@ -40,9 +40,8 @@ serve(async (request) => {
       throw new AuthError("Cross-tenant OAuth request denied", 403);
     }
 
-    const supabaseUrl = requiredEnv("SUPABASE_URL");
     const clientId = requiredEnv("GOOGLE_CLIENT_ID");
-    const redirectUri = `${supabaseUrl}/functions/v1/google-auth-callback`;
+    const redirectUri = resolveGoogleRedirectUri();
     const state = randomBase64Url(32);
     const stateHash = await sha256Hex(state);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -92,6 +91,19 @@ serve(async (request) => {
     );
   }
 });
+
+function resolveGoogleRedirectUri(): string {
+  const supabaseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
+  const legacyRedirectUri = `${supabaseUrl}/functions/v1/google-auth-callback`;
+  const configured = (Deno.env.get("GOOGLE_REDIRECT_URI") ?? "").trim();
+  if (!configured) return legacyRedirectUri;
+
+  const parsed = new URL(configured);
+  if (parsed.protocol !== "https:" || parsed.pathname !== "/functions/v1/google-auth-callback") {
+    throw new Error("Invalid GOOGLE_REDIRECT_URI");
+  }
+  return parsed.toString();
+}
 
 function randomBase64Url(byteLength: number): string {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));

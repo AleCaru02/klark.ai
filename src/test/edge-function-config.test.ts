@@ -41,6 +41,7 @@ describe("configurazione Edge Functions", () => {
       "calendar-watch",
       "facebook-webhook-tenant",
       "google-auth-callback",
+      "google-calendar-sync",
       "meta-leadads-auth-callback",
       "meta-leadads-webhook",
       "public-demo-request",

@@ -5,11 +5,22 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/functions/v1/google-auth-callback",
+      "destination": "https://ipazbzctivqquwndifxh.supabase.co/functions/v1/google-auth-callback"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/functions/v1/google-auth-callback",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [
