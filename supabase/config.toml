@@ -76,6 +76,9 @@ verify_jwt = true
 [functions.ai-summary]
 verify_jwt = true
 
+[functions.app-assistant-message]
+verify_jwt = true
+
 [functions.calendar-events]
 verify_jwt = true
 
