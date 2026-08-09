@@ -17,7 +17,7 @@ export default function ForgotPassword() {
     setError(null);
 
     if (!isSupabaseConfigured) {
-      setError("Recupero password non disponibile: il backend della preview non è configurato.");
+      setError("Il recupero password è temporaneamente non disponibile. Riprova tra poco.");
       return;
     }
 
@@ -63,24 +63,24 @@ export default function ForgotPassword() {
         {!isSupabaseConfigured && (
           <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 flex items-start gap-3" role="status">
             <ServerOff className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-            <p className="text-sm">Il recupero password è disabilitato in questa preview.</p>
+            <p className="text-sm">Il recupero password è temporaneamente non disponibile.</p>
           </div>
         )}
 
         {sent ? (
           <div className="space-y-4" role="status" aria-live="polite">
             <CheckCircle className="w-12 h-12 text-success" aria-hidden="true" />
-            <h1 className="text-2xl font-bold">Richiesta ricevuta</h1>
+            <h1 className="text-2xl font-bold">Controlla la tua email</h1>
             <p className="text-muted-foreground">
-              Se l'indirizzo indicato è associato a un account, riceverai un link per reimpostare la password.
+              Se l'indirizzo indicato è associato a un account ClerkAI, riceverai un link per scegliere una nuova password.
             </p>
-            <p className="text-sm text-muted-foreground">Controlla anche la cartella spam.</p>
+            <p className="text-sm text-muted-foreground">Controlla anche la cartella spam o posta indesiderata.</p>
           </div>
         ) : (
           <>
             <h1 className="text-2xl font-bold mb-2">Password dimenticata?</h1>
             <p className="text-muted-foreground mb-8">
-              Inserisci l'email associata all'account per richiedere il link di reimpostazione.
+              Inserisci l'email associata al tuo account ClerkAI. Ti invieremo le istruzioni per impostare una nuova password.
             </p>
 
             {error && (
@@ -113,7 +113,7 @@ export default function ForgotPassword() {
                 </div>
 
                 <Button type="submit" className="w-full" size="lg">
-                  {isLoading ? "Invio in corso..." : "Invia link di reset"}
+                  {isLoading ? "Invio in corso..." : "Invia link per nuova password"}
                 </Button>
               </fieldset>
             </form>
