@@ -1,0 +1,41 @@
+name: Temporary Build Candidate Artifact
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temporary-build-candidate-artifact.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: https://ipazbzctivqquwndifxh.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_WVqZ-6gb2SutSOpqqFY_6w_YPUwmOp5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Verify candidate Supabase is embedded
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -Fq 'ipazbzctivqquwndifxh.supabase.co' dist || { echo 'Candidate Supabase URL missing from dist'; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clerkai-candidate-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
