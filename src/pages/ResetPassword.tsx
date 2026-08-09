@@ -65,7 +65,7 @@ export default function ResetPassword() {
     setError(null);
 
     if (!isSupabaseConfigured || !isRecovery) {
-      setError("Il link non è valido oppure il backend non è configurato.");
+      setError("Il link non è valido oppure il servizio non è disponibile. Richiedi un nuovo link.");
       return;
     }
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -100,9 +100,9 @@ export default function ResetPassword() {
       <main className="min-h-screen bg-background flex items-center justify-center px-4">
         <div className="max-w-sm w-full text-center space-y-4">
           <ServerOff className="w-12 h-12 text-amber-600 mx-auto" aria-hidden="true" />
-          <h1 className="text-xl font-bold">Reimpostazione non disponibile</h1>
+          <h1 className="text-xl font-bold">Reimpostazione temporaneamente non disponibile</h1>
           <p className="text-muted-foreground text-sm">
-            Il backend di questa preview non è configurato. Nessuna password può essere modificata.
+            Non è possibile modificare la password in questo momento. Riprova tra poco oppure contatta il supporto.
           </p>
           <Button onClick={() => navigate("/login")}>Torna al login</Button>
         </div>
@@ -152,11 +152,11 @@ export default function ResetPassword() {
           <div className="text-center space-y-4" role="status" aria-live="polite">
             <CheckCircle className="w-12 h-12 text-success mx-auto" aria-hidden="true" />
             <h1 className="text-xl font-bold">Password aggiornata</h1>
-            <p className="text-muted-foreground text-sm">Reindirizzamento al login in corso…</p>
+            <p className="text-muted-foreground text-sm">La nuova password è attiva. Reindirizzamento al login in corso…</p>
           </div>
         ) : (
           <>
-            <h1 className="text-2xl font-bold mb-2 text-center">Nuova password</h1>
+            <h1 className="text-2xl font-bold mb-2 text-center">Scegli una nuova password</h1>
             <p className="text-muted-foreground text-center mb-8">
               Usa almeno {MIN_PASSWORD_LENGTH} caratteri, una maiuscola, una minuscola e un numero.
             </p>
