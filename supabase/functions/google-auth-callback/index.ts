@@ -36,8 +36,7 @@ serve(async (request) => {
     const tenantId = oauthState.tenant_id as string;
     const userId = oauthState.user_id as string;
     const redirectUri = oauthState.redirect_uri as string;
-    const expectedRedirectUri = `${requiredEnv("SUPABASE_URL")}/functions/v1/google-auth-callback`;
-    if (redirectUri !== expectedRedirectUri) {
+    if (!allowedGoogleRedirectUris().has(redirectUri)) {
       return redirect(destination, { error: "redirect_mismatch" });
     }
 
@@ -132,6 +131,21 @@ serve(async (request) => {
   }
 });
 
+function allowedGoogleRedirectUris(): Set<string> {
+  const supabaseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
+  const legacyRedirectUri = `${supabaseUrl}/functions/v1/google-auth-callback`;
+  const configured = (Deno.env.get("GOOGLE_REDIRECT_URI") ?? "").trim();
+  const allowed = new Set<string>([legacyRedirectUri]);
+  if (configured) {
+    const parsed = new URL(configured);
+    if (parsed.protocol !== "https:" || parsed.pathname !== "/functions/v1/google-auth-callback") {
+      throw new Error("Invalid GOOGLE_REDIRECT_URI");
+    }
+    allowed.add(parsed.toString());
+  }
+  return allowed;
+}
+
 async function registerGoogleWatch(
   supabase: any,
   tenantId: string,
@@ -184,7 +198,6 @@ async function registerGoogleWatch(
   }, { onConflict: "channel_id" });
   if (error) throw error;
 }
-
 
 function hasRequiredCalendarScopes(scopeValue: string): boolean {
   const scopes = new Set(scopeValue.split(/\s+/).filter(Boolean));
