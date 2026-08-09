@@ -28,24 +28,44 @@ export default function ResetPassword() {
     let mounted = true;
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const queryParams = new URLSearchParams(window.location.search);
-    const hasRecoveryMarker =
+    const tokenHash = queryParams.get("token_hash");
+    const recoveryType = queryParams.get("type") === "recovery";
+    const hasLegacyRecoveryMarker =
       hashParams.get("type") === "recovery" ||
-      queryParams.get("type") === "recovery" ||
+      recoveryType ||
       Boolean(queryParams.get("code"));
-
-    if (hasRecoveryMarker) setIsRecovery(true);
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (!mounted) return;
       if (event === "PASSWORD_RECOVERY") setIsRecovery(true);
-      setIsCheckingLink(false);
+      if (!tokenHash) setIsCheckingLink(false);
     });
+
+    if (tokenHash && recoveryType) {
+      void supabase.auth.verifyOtp({ type: "recovery", token_hash: tokenHash }).then(({ error: verifyError }) => {
+        if (!mounted) return;
+        if (verifyError) {
+          console.error("Password recovery token verification failed");
+          setIsRecovery(false);
+          setError("Il link non è valido, è già stato usato oppure è scaduto.");
+        } else {
+          setIsRecovery(true);
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.searchParams.delete("token_hash");
+          cleanUrl.searchParams.delete("type");
+          window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+        }
+        setIsCheckingLink(false);
+      });
+    } else if (hasLegacyRecoveryMarker) {
+      setIsRecovery(true);
+    }
 
     const timeout = window.setTimeout(() => {
       if (mounted) setIsCheckingLink(false);
-    }, 2_000);
+    }, 3_000);
 
     return () => {
       mounted = false;
@@ -128,7 +148,7 @@ export default function ResetPassword() {
           <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto" aria-hidden="true" />
           <h1 className="text-xl font-bold">Link non valido</h1>
           <p className="text-muted-foreground text-sm">
-            Il link di reimpostazione non è valido, è già stato usato oppure è scaduto.
+            {error || "Il link di reimpostazione non è valido, è già stato usato oppure è scaduto."}
           </p>
           <Button onClick={() => navigate("/forgot-password")}>Richiedi un nuovo link</Button>
         </div>
