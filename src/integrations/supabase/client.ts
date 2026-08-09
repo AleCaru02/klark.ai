@@ -1,8 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-const configuredUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
-const configuredPublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+const CANDIDATE_SUPABASE_URL = "https://ipazbzctivqquwndifxh.supabase.co";
+// Publishable keys are intentionally safe for browser use. Authorization remains enforced by RLS.
+const CANDIDATE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_WVqZ-6gb2SutSOpqqFY_6w_YPUwmOp5";
+
+const isCandidateVercelHost =
+  typeof window !== "undefined" &&
+  /^clerkai-preview-alecaru02(?:-|\.)/.test(window.location.hostname);
+
+const configuredUrl =
+  import.meta.env.VITE_SUPABASE_URL?.trim() ||
+  (isCandidateVercelHost ? CANDIDATE_SUPABASE_URL : undefined);
+const configuredPublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  (isCandidateVercelHost ? CANDIDATE_SUPABASE_PUBLISHABLE_KEY : undefined);
 
 export const isSupabaseConfigured = Boolean(
   configuredUrl &&
@@ -13,7 +25,8 @@ export const isSupabaseConfigured = Boolean(
 
 // Permette alla landing e alle pagine informative di caricarsi in una preview
 // senza backend. AuthProvider impedisce qualsiasi chiamata applicativa quando
-// isSupabaseConfigured è false.
+// isSupabaseConfigured è false. La preview candidata Vercel usa esclusivamente
+// il backend candidato finché le variabili build-time non vengono configurate sul progetto.
 const SUPABASE_URL = isSupabaseConfigured
   ? configuredUrl!
   : "https://backend-not-configured.invalid";
