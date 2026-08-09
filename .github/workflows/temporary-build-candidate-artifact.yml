@@ -59,10 +59,10 @@ jobs:
           const css = fs.readFileSync(cssPath, 'utf8').replace(/<\/style/gi, '<\\/style');
           const assistant = fs.readFileSync('dist/clark-site-assistant.js', 'utf8').replace(/<\/script/gi, '<\\/script');
           const favicon = fs.readFileSync('dist/favicon.ico').toString('base64');
-          html = html.replace(scriptMatch[0], `<script type="module">${js}</script>`);
-          html = html.replace(cssMatch[0], `<style>${css}</style>`);
-          html = html.replace('<script defer src="/clark-site-assistant.js"></script>', `<script>${assistant}</script>`);
-          html = html.replace('href="/favicon.ico"', `href="data:image/x-icon;base64,${favicon}"`);
+          html = html.replace(scriptMatch[0], () => `<script type="module">${js}</script>`);
+          html = html.replace(cssMatch[0], () => `<style>${css}</style>`);
+          html = html.replace('<script defer src="/clark-site-assistant.js"></script>', () => `<script>${assistant}</script>`);
+          html = html.replace('href="/favicon.ico"', () => `href="data:image/x-icon;base64,${favicon}"`);
           fs.rmSync('candidate-static', { recursive: true, force: true });
           fs.mkdirSync('candidate-static', { recursive: true });
           fs.writeFileSync('candidate-static/index.html', html);
@@ -71,8 +71,11 @@ jobs:
           }
           EOF
           grep -Fq 'ipazbzctivqquwndifxh.supabase.co' candidate-static/index.html
-          echo 'Remaining /assets/ references:'
-          grep -oE '/assets/[A-Za-z0-9._/-]+' candidate-static/index.html | sort -u | head -100 || true
+          if grep -Fq '/assets/' candidate-static/index.html; then
+            echo 'Self-contained candidate still references /assets/'
+            grep -oE '/assets/[A-Za-z0-9._/-]+' candidate-static/index.html | sort -u | head -100 || true
+            exit 1
+          fi
           test -s candidate-static/index.html
           echo "Self-contained size: $(wc -c < candidate-static/index.html) bytes"
       - uses: actions/upload-artifact@v4
