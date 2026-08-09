@@ -1,5 +1,9 @@
 project_id = "weufeilkdzimmmgskobs"
 
+[auth.email.template.recovery]
+subject = "Reimposta la password di ClerkAI"
+content_path = "./templates/recovery.html"
+
 # Endpoint provider e callback OAuth: il gateway non può richiedere un JWT
 # Supabase perché i provider esterni non ne possiedono uno. Questi endpoint
 # applicano firme crittografiche, token di verifica o state OAuth monouso.
