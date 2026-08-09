@@ -8,11 +8,21 @@ import {
   requireUserTenant,
 } from "../_shared/security.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+function corsHeaders(request: Request): Record<string, string> {
+  const appUrl = requiredEnv("APP_URL").replace(/\/$/, "");
+  const extraOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  const allowed = new Set([appUrl, ...extraOrigins]);
+  const requestOrigin = request.headers.get("Origin")?.replace(/\/$/, "");
+  return {
+    "Access-Control-Allow-Origin": requestOrigin && allowed.has(requestOrigin) ? requestOrigin : appUrl,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
 interface GoogleEvent {
   id?: string;
@@ -36,10 +46,11 @@ interface SyncStats {
 }
 
 serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const headers = corsHeaders(request);
+  if (request.method === "OPTIONS") return new Response("ok", { headers });
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405, {
-      ...corsHeaders,
+      ...headers,
       Allow: "POST",
     });
   }
@@ -52,7 +63,7 @@ serve(async (request) => {
       user_id?: string;
     };
     if (!body.tenant_id) {
-      return jsonResponse({ error: "tenant_id is required" }, 400, corsHeaders);
+      return jsonResponse({ error: "tenant_id is required" }, 400, headers);
     }
 
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -86,14 +97,14 @@ serve(async (request) => {
     });
     if (auditError) console.error("[google-calendar-sync] Audit failed", auditError);
 
-    return jsonResponse({ success: true, ...result }, 200, corsHeaders);
+    return jsonResponse({ success: true, ...result }, 200, headers);
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
     console.error("[google-calendar-sync] Sync failed", error);
     return jsonResponse(
       { error: status < 500 && error instanceof Error ? error.message : "Calendar sync failed" },
       status,
-      corsHeaders,
+      headers,
     );
   }
 });
