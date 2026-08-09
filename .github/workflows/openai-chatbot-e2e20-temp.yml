@@ -21,7 +21,7 @@ jobs:
       CHAT_BASE: https://ipazbzctivqquwndifxh.supabase.co/functions/v1
       WIDGET_KEY: 21332d02-8c76-458b-9961-267db3044205
       CHAT_ORIGIN: https://clerkai-preview-alecaru02.vercel.app
-      TEST_UA: ClarkAI-E2E20-20260809
+      TEST_UA: ClarkAI-E2E20-20260809-R3
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,18 +41,22 @@ jobs:
         with:
           version: latest
 
-      - name: Configure OpenAI secret on candidate only
+      - name: Configure OpenAI runtime on candidate only
         shell: bash
         run: |
           set -euo pipefail
-          f="$RUNNER_TEMP/openai-secret.env"
+          f="$RUNNER_TEMP/openai-runtime.env"
           trap 'rm -f "$f"' EXIT
           umask 077
-          printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" > "$f"
+          {
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'OPENAI_CHAT_MODEL=gpt-5.4-mini\n'
+          } > "$f"
           supabase secrets set --project-ref "$PROJECT_REF" --env-file "$f" >/dev/null
           rm -f "$f"
           trap - EXIT
           echo "CANDIDATE_OPENAI_SECRET_SET=true"
+          echo "CANDIDATE_OPENAI_MODEL=gpt-5.4-mini"
 
       - name: Verify active chatbot functions on fixed candidate
         shell: bash
@@ -173,7 +177,7 @@ jobs:
               print(f"Q{idx:02d}={'PASS' if ok else 'FAIL'} HTTP={status} PROVIDER={provider} ANSWER_LEN={len(answer)} SOURCES={len(sources)}")
               if not ok:
                   failures.append((idx, status, provider, answer[:500]))
-              time.sleep(0.5)
+              time.sleep(0.75)
 
           print(f"E2E_REQUESTS={len(results)}")
           print(f"E2E_PASS={sum(1 for r in results if r['ok'])}")
