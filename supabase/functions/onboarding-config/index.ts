@@ -42,28 +42,64 @@ function integerInRange(value: unknown, min: number, max: number, fallback: numb
 }
 
 async function loadConfiguration(client: ReturnType<typeof createServiceClient>, tenantId: string) {
-  const [profile, settings, services, faqs, exceptions] = await Promise.all([
+  const [profile, settings, services, faqs, exceptions, phone] = await Promise.all([
     client.from("tenant_business_profiles").select("*").eq("tenant_id", tenantId).maybeSingle(),
     client
       .from("settings")
-      .select("timezone,language_voice,availability_json,booking_rules_json,recording_opt_in,do_not_contact_default,voice_number,voice_enabled,voice_runtime_verified,calendar_id,calendar_enabled")
+      .select("timezone,language_voice,availability_json,booking_rules_json,recording_opt_in,do_not_contact_default,voice_number,voice_enabled,voice_runtime_verified,calendar_id,calendar_enabled,twilio_number_sid")
       .eq("tenant_id", tenantId)
       .maybeSingle(),
     client.from("tenant_services").select("id,name,description,duration_minutes,price_cents,disclose_price,appointment_enabled,is_active,sort_order").eq("tenant_id", tenantId).order("sort_order"),
     client.from("tenant_faqs").select("id,question,answer,is_active,sort_order").eq("tenant_id", tenantId).order("sort_order"),
     client.from("tenant_schedule_exceptions").select("id,exception_date,is_closed,start_time,end_time,note").eq("tenant_id", tenantId).order("exception_date"),
+    client
+      .from("tenant_phone_numbers")
+      .select("phone_number,status,provider_status,regulatory_status,twilio_sid")
+      .eq("tenant_id", tenantId)
+      .eq("phone_type", "voice")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
-  for (const result of [profile, settings, services, faqs, exceptions]) {
+  for (const result of [profile, settings, services, faqs, exceptions, phone]) {
     if (result.error) throw result.error;
   }
 
+  const profileData = profile.data;
+  const settingsData = settings.data;
+  const phoneData = phone.data;
+  const onboardingConfigured = Boolean(
+    profileData?.address_line1 &&
+    profileData?.city &&
+    profileData?.postal_code &&
+    profileData?.business_phone_e164 &&
+    profileData?.business_email &&
+    profileData?.ai_disclosure_confirmed === true &&
+    profileData?.callback_consent_required !== false &&
+    profileData?.dnc_respected !== false &&
+    (services.data?.length ?? 0) > 0
+  );
+  const numberAssigned = Boolean(
+    phoneData?.phone_number &&
+    phoneData?.twilio_sid &&
+    settingsData?.twilio_number_sid
+  );
+
   return {
-    profile: profile.data,
-    settings: settings.data,
+    profile: profileData,
+    settings: settingsData,
     services: services.data ?? [],
     faqs: faqs.data ?? [],
     exceptions: exceptions.data ?? [],
+    voice: {
+      onboardingConfigured,
+      numberAssigned,
+      regulatoryApproved: phoneData?.regulatory_status === "approved",
+      providerVerified: phoneData?.provider_status === "verified" && phoneData?.status === "active",
+      runtimeVerified: settingsData?.voice_runtime_verified === true,
+      enabled: settingsData?.voice_enabled === true,
+    },
   };
 }
 
