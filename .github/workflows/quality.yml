@@ -92,6 +92,7 @@ jobs:
         run: |
           deno test --config deno.json supabase/functions/_shared/security_test.ts
           deno test --config deno.json supabase/functions/_shared/site-chat_test.ts
+          deno test --config deno.json supabase/functions/_shared/crypto_test.ts
       - name: Check every Edge Function and shared module
         shell: bash
         run: |
