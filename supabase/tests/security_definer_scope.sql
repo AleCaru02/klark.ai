@@ -64,6 +64,15 @@ begin
   if public.is_compliant_voice_number('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', '+390212345679') then
     raise exception 'Tenant A can enumerate Tenant B Voice compliance through SECURITY DEFINER RPC';
   end if;
+
+  begin
+    perform * from public.get_twilio_runtime_credentials(
+      'ACbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    );
+    raise exception 'Authenticated tenant can execute Vault runtime credential RPC';
+  exception
+    when insufficient_privilege then null;
+  end;
 end
 $$;
 
