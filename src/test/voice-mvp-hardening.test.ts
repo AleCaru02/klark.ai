@@ -54,7 +54,7 @@ describe("MVP Voice hardening", () => {
 
   it("keeps automated queue processing out of Voice test mode", () => {
     expect(makeCall).toContain("Test calls cannot use the automated call queue");
-    expect(makeCall).toContain("Platform admin required for Voice test mode");
+    expect(makeCall).toContain("test_mode is restricted to authenticated platform administrators");
     expect(worker).not.toContain("test_mode: true");
     expect(worker).toContain("callback_requested");
     expect(worker).toContain("do_not_contact");
