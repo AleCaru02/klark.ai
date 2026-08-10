@@ -1,0 +1,106 @@
+name: Apply onboarding integration patch
+
+on:
+  push:
+    branches:
+      - agent/mvp-production-readiness-20260810
+    paths:
+      - .github/workflows/apply-onboarding-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/mvp-production-readiness-20260810
+      - name: Integrate structured onboarding sections
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/pages/app/Onboarding.tsx")
+          text = path.read_text()
+
+          def replace_once(old: str, new: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match, found {count}: {old[:100]!r}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'import { toast } from "sonner";\n',
+              'import { toast } from "sonner";\nimport { BusinessProfileSetup } from "@/components/onboarding/BusinessProfileSetup";\nimport { ServicesFaqSetup } from "@/components/onboarding/ServicesFaqSetup";\nimport { VoiceOperationsSetup } from "@/components/onboarding/VoiceOperationsSetup";\n',
+          )
+
+          replace_once(
+              '  { id: 1, title: "Profilo", description: "Contesto dell\'attività", icon: Building2 },\n  { id: 2, title: "Obiettivi", description: "Risultati e volumi", icon: Target },\n  { id: 3, title: "Assistente", description: "Voce e comunicazione", icon: Volume2 },\n  { id: 4, title: "Escalation", description: "Limiti e passaggio umano", icon: ShieldAlert },\n  { id: 5, title: "Integrazioni", description: "Provider e dipendenze", icon: Settings },\n  { id: 6, title: "Go-live", description: "Criteri di accettazione", icon: CheckCircle2 },',
+              '  { id: 1, title: "La tua attività", description: "Identità, sede e contatti", icon: Building2 },\n  { id: 2, title: "Servizi", description: "Obiettivi, catalogo e FAQ", icon: Target },\n  { id: 3, title: "Receptionist AI", description: "Voce e comunicazione", icon: Volume2 },\n  { id: 4, title: "Regole operative", description: "Orari, agenda, telefonia e compliance", icon: ShieldAlert },\n  { id: 5, title: "Integrazioni", description: "Calendar e dipendenze", icon: Settings },\n  { id: 6, title: "Riepilogo", description: "Readiness e blocchi live", icon: CheckCircle2 },',
+          )
+
+          replace_once(
+              '  const [loadError, setLoadError] = useState<string | null>(null);\n\n  const [studioName, setStudioName] = useState("");',
+              '  const [loadError, setLoadError] = useState<string | null>(null);\n  const [businessProfileReady, setBusinessProfileReady] = useState(false);\n  const [servicesReady, setServicesReady] = useState(false);\n  const [voiceOperationsReady, setVoiceOperationsReady] = useState(false);\n\n  const [studioName, setStudioName] = useState("");',
+          )
+
+          replace_once('  const [address, setAddress] = useState("");\n  const [website, setWebsite] = useState("");\n', '')
+          replace_once('      setAddress(readString(prompt, "address"));\n      setWebsite(readString(prompt, "website"));\n', '')
+          replace_once('          address: address.trim(),\n          website: website.trim(),\n', '')
+
+          replace_once(
+              '  const profileComplete = Boolean(studioName.trim() && profession);\n  const objectivesComplete = Boolean(primaryGoal && successMetric.trim() && expectedVolume);\n',
+              '  const profileComplete = Boolean(studioName.trim() && profession && businessProfileReady);\n  const objectivesComplete = Boolean(primaryGoal && successMetric.trim() && expectedVolume && servicesReady);\n',
+          )
+          replace_once(
+              '      isValidOptionalE164(handoffPhone),\n  );',
+              '      isValidOptionalE164(handoffPhone) &&\n      voiceOperationsReady,\n  );',
+          )
+
+          legacy_profile = '''              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="address">Sede o area servita</Label>
+                  <Input id="address" value={address} onChange={(event) => setAddress(event.target.value)} maxLength={240} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="website">Sito web</Label>
+                  <Input id="website" type="url" value={website} onChange={(event) => setWebsite(event.target.value)} maxLength={300} placeholder="https://" />
+                </div>
+              </div>
+'''
+          replace_once(legacy_profile, '              <BusinessProfileSetup onCompleteChange={setBusinessProfileReady} />\n')
+
+          marker = '''              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-mode">Gestione appuntamenti</Label>'''
+          replace_once(marker, '              <ServicesFaqSetup onCompleteChange={setServicesReady} />\n' + marker)
+
+          marker2 = '''              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="business-hours">Orari e copertura *</Label>'''
+          replace_once(marker2, '              <VoiceOperationsSetup onCompleteChange={setVoiceOperationsReady} />\n' + marker2)
+
+          replace_once(
+              '      { label: "Profilo attività", passed: profileComplete, required: true },\n      { label: "Obiettivo e metrica di successo", passed: objectivesComplete, required: true },',
+              '      { label: "Profilo attività e contatti", passed: profileComplete, required: true },\n      { label: "Servizi, obiettivo e metrica", passed: objectivesComplete, required: true },',
+          )
+          replace_once(
+              '      { label: "Passaggio umano e azioni vietate", passed: handoffComplete, required: true },',
+              '      { label: "Orari, agenda, telefonia e passaggio umano", passed: handoffComplete, required: true },',
+          )
+
+          path.write_text(text)
+      - name: Commit integration
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/app/Onboarding.tsx
+          git commit -m "feat(onboarding): integrate production readiness sections"
+          git push origin HEAD:agent/mvp-production-readiness-20260810
