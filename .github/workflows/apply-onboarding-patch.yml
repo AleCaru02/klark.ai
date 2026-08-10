@@ -18,81 +18,11 @@ jobs:
         with:
           ref: agent/mvp-production-readiness-20260810
       - name: Integrate structured onboarding sections
-        shell: python
+        env:
+          PATCH_SCRIPT_B64: ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpwYXRoID0gUGF0aCgic3JjL3BhZ2VzL2FwcC9PbmJvYXJkaW5nLnRzeCIpCnRleHQgPSBwYXRoLnJlYWRfdGV4dCgpCgpkZWYgcmVwbGFjZV9vbmNlKG9sZDogc3RyLCBuZXc6IHN0cik6CiAgICBnbG9iYWwgdGV4dAogICAgY291bnQgPSB0ZXh0LmNvdW50KG9sZCkKICAgIGlmIGNvdW50ICE9IDE6CiAgICAgICAgcmFpc2UgU3lzdGVtRXhpdChmIkV4cGVjdGVkIGV4YWN0bHkgb25lIG1hdGNoLCBmb3VuZCB7Y291bnR9OiB7b2xkWzoxMDBdIXJ9IikKICAgIHRleHQgPSB0ZXh0LnJlcGxhY2Uob2xkLCBuZXcsIDEpCgpyZXBsYWNlX29uY2UoCiAgICAnaW1wb3J0IHsgdG9hc3QgfSBmcm9tICJzb25uZXIiO1xuJywKICAgICdpbXBvcnQgeyB0b2FzdCB9IGZyb20gInNvbm5lciI7XG5pbXBvcnQgeyBCdXNpbmVzc1Byb2ZpbGVTZXR1cCB9IGZyb20gIkAvY29tcG9uZW50cy9vbmJvYXJkaW5nL0J1c2luZXNzUHJvZmlsZVNldHVwIjtcbmltcG9ydCB7IFNlcnZpY2VzRmFxU2V0dXAgfSBmcm9tICJAL2NvbXBvbmVudHMvb25ib2FyZGluZy9TZXJ2aWNlc0ZhcVNldHVwIjtcbmltcG9ydCB7IFZvaWNlT3BlcmF0aW9uc1NldHVwIH0gZnJvbSAiQC9jb21wb25lbnRzL29uYm9hcmRpbmcvVm9pY2VPcGVyYXRpb25zU2V0dXAiO1xuJywKKQoKcmVwbGFjZV9vbmNlKAogICAgJyAgeyBpZDogMSwgdGl0bGU6ICJQcm9maWxvIiwgZGVzY3JpcHRpb246ICJDb250ZXN0byBkZWxsXFxcJ2F0dGl2aXTDoCIsIGljb246IEJ1aWxkaW5nMiB9LFxuICB7IGlkOiAyLCB0aXRsZTogIk9iaWV0dGl2aSIsIGRlc2NyaXB0aW9uOiAiUmlzdWx0YXRpIGUgdm9sdW1pIiwgaWNvbjogVGFyZ2V0IH0sXG4gIHsgaWQ6IDMsIHRpdGxlOiAiQXNzaXN0ZW50ZSIsIGRlc2NyaXB0aW9uOiAiVm9jZSBlIGNvbXVuaWNhemlvbmUiLCBpY29uOiBWb2x1bWUyIH0sXG4gIHsgaWQ6IDQsIHRpdGxlOiAiRXNjYWxhdGlvbiIsIGRlc2NyaXB0aW9uOiAiTGltaXRpIGUgcGFzc2FnZ2lvIHVtYW5vIiwgaWNvbjogU2hpZWxkQWxlcnQgfSxcbiAgeyBpZDogNSwgdGl0bGU6ICJJbnRlZ3JhemlvbmkiLCBkZXNjcmlwdGlvbjogIlByb3ZpZGVyIGUgZGlwZW5kZW56ZSIsIGljb246IFNldHRpbmdzIH0sXG4gIHsgaWQ6IDYsIHRpdGxlOiAiR28tbGl2ZSIsIGRlc2NyaXB0aW9uOiAiQ3JpdGVyaSBkaSBhY2NldHRhemlvbmUiLCBpY29uOiBDaGVja0NpcmNsZTIgfSwnLAogICAgJyAgeyBpZDogMSwgdGl0bGU6ICJMYSB0dWEgYXR0aXZpdMOgIiwgZGVzY3JpcHRpb246ICJJZGVudGl0w6AsIHNlZGUgZSBjb250YXR0aSIsIGljb246IEJ1aWxkaW5nMiB9LFxuICB7IGlkOiAyLCB0aXRsZTogIlNlcnZpemkiLCBkZXNjcmlwdGlvbjogIk9iaWV0dGl2aSwgY2F0YWxvZ28gZSBGQVEiLCBpY29uOiBUYXJnZXQgfSxcbiAgeyBpZDogMywgdGl0bGU6ICJSZWNlcHRpb25pc3QgQUkiLCBkZXNjcmlwdGlvbjogIlZvY2UgZSBjb211bmljYXppb25lIiwgaWNvbjogVm9sdW1lMiB9LFxuICB7IGlkOiA0LCB0aXRsZTogIlJlZ29sZSBvcGVyYXRpdmUiLCBkZXNjcmlwdGlvbjogIk9yYXJpLCBhZ2VuZGEsIHRlbGVmb25pYSBlIGNvbXBsaWFuY2UiLCBpY29uOiBTaGllbGRBbGVydCB9LFxuICB7IGlkOiA1LCB0aXRsZTogIkludGVncmF6aW9uaSIsIGRlc2NyaXB0aW9uOiAiQ2FsZW5kYXIgZSBkaXBlbmRlbnplIiwgaWNvbjogU2V0dGluZ3MgfSxcbiAgeyBpZDogNiwgdGl0bGU6ICJSaWVwaWxvZ28iLCBkZXNjcmlwdGlvbjogIlJlYWRpbmVzcyBlIGJsb2NjaGkgbGl2ZSIsIGljb246IENoZWNrQ2lyY2xlMiB9LCcsCikKCnJlcGxhY2Vfb25jZSgKICAgICcgIGNvbnN0IFtsb2FkRXJyb3IsIHNldExvYWRFcnJvcl0gPSB1c2VTdGF0ZTxzdHJpbmcgfCBudWxsPihudWxsKTtcblxuICBjb25zdCBbc3R1ZGlvTmFtZSwgc2V0U3R1ZGlvTmFtZV0gPSB1c2VTdGF0ZSgiIik7JywKICAgICcgIGNvbnN0IFtsb2FkRXJyb3IsIHNldExvYWRFcnJvcl0gPSB1c2VTdGF0ZTxzdHJpbmcgfCBudWxsPihudWxsKTtcbiAgY29uc3QgW2J1c2luZXNzUHJvZmlsZVJlYWR5LCBzZXRCdXNpbmVzc1Byb2ZpbGVSZWFkeV0gPSB1c2VTdGF0ZShmYWxzZSk7XG4gIGNvbnN0IFtzZXJ2aWNlc1JlYWR5LCBzZXRTZXJ2aWNlc1JlYWR5XSA9IHVzZVN0YXRlKGZhbHNlKTtcbiAgY29uc3QgW3ZvaWNlT3BlcmF0aW9uc1JlYWR5LCBzZXRWb2ljZU9wZXJhdGlvbnNSZWFkeV0gPSB1c2VTdGF0ZShmYWxzZSk7XG5cbiAgY29uc3QgW3N0dWRpb05hbWUsIHNldFN0dWRpb05hbWVdID0gdXNlU3RhdGUoIiIpOycsCikKCnJlcGxhY2Vfb25jZSgnICBjb25zdCBbYWRkcmVzcywgc2V0QWRkcmVzc10gPSB1c2VTdGF0ZSgiIik7XG4gIGNvbnN0IFt3ZWJzaXRlLCBzZXRXZWJzaXRlXSA9IHVzZVN0YXRlKCIiKTtcbicsICcnKQpyZXBsYWNlX29uY2UoJyAgICAgIHNldEFkZHJlc3MocmVhZFN0cmluZyhwcm9tcHQsICJhZGRyZXNzIikpO1xuICAgICAgc2V0V2Vic2l0ZShyZWFkU3RyaW5nKHByb21wdCwgIndlYnNpdGUiKSk7XG4nLCAnJykKcmVwbGFjZV9vbmNlKCcgICAgICAgICAgYWRkcmVzczogYWRkcmVzcy50cmltKCksXG4gICAgICAgICAgd2Vic2l0ZTogd2Vic2l0ZS50cmltKCksXG4nLCAnJykKCnJlcGxhY2Vfb25jZSgKICAgICcgIGNvbnN0IHByb2ZpbGVDb21wbGV0ZSA9IEJvb2xlYW4oc3R1ZGlvTmFtZS50cmltKCkgJiYgcHJvZmVzc2lvbik7XG4gIGNvbnN0IG9iamVjdGl2ZXNDb21wbGV0ZSA9IEJvb2xlYW4ocHJpbWFyeUdvYWwgJiYgc3VjY2Vzc01ldHJpYy50cmltKCkgJiYgZXhwZWN0ZWRWb2x1bWUpO1xuJywKICAgICcgIGNvbnN0IHByb2ZpbGVDb21wbGV0ZSA9IEJvb2xlYW4oc3R1ZGlvTmFtZS50cmltKCkgJiYgcHJvZmVzc2lvbiAmJiBidXNpbmVzc1Byb2ZpbGVSZWFkeSk7XG4gIGNvbnN0IG9iamVjdGl2ZXNDb21wbGV0ZSA9IEJvb2xlYW4ocHJpbWFyeUdvYWwgJiYgc3VjY2Vzc01ldHJpYy50cmltKCkgJiYgZXhwZWN0ZWRWb2x1bWUgJiYgc2VydmljZXNSZWFkeSk7XG4nLAopCnJlcGxhY2Vfb25jZSgKICAgICcgICAgICBpc1ZhbGlkT3B0aW9uYWxFMTY0KGhhbmRvZmZQaG9uZSksXG4gICk7JywKICAgICcgICAgICBpc1ZhbGlkT3B0aW9uYWxFMTY0KGhhbmRvZmZQaG9uZSkgJiZcbiAgICAgIHZvaWNlT3BlcmF0aW9uc1JlYWR5LFxuICApOycsCikKCmxlZ2FjeV9wcm9maWxlID0gJycnICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZ3JpZCBtZDpncmlkLWNvbHMtMiBnYXAtNCI+CiAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0ic3BhY2UteS0yIj4KICAgICAgICAgICAgICAgICAgPExhYmVsIGh0bWxGb3I9ImFkZHJlc3MiPlNlZGUgbyBhcmVhIHNlcnZpdGE8L0xhYmVsPgogICAgICAgICAgICAgICAgICA8SW5wdXQgaWQ9ImFkZHJlc3MiIHZhbHVlPXthZGRyZXNzfSBvbkNoYW5nZT17KGV2ZW50KSA9PiBzZXRBZGRyZXNzKGV2ZW50LnRhcmdldC52YWx1ZSl9IG1heExlbmd0aD17MjQwfSAvPgogICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0ic3BhY2UteS0yIj4KICAgICAgICAgICAgICAgICAgPExhYmVsIGh0bWxGb3I9IndlYnNpdGUiPlNpdG8gd2ViPC9MYWJlbD4KICAgICAgICAgICAgICAgICAgPElucHV0IGlkPSJ3ZWJzaXRlIiB0eXBlPSJ1cmwiIHZhbHVlPXt3ZWJzaXRlfSBvbkNoYW5nZT17KGV2ZW50KSA9PiBzZXRXZWJzaXRlKGV2ZW50LnRhcmdldC52YWx1ZSl9IG1heExlbmd0aD17MzAwfSBwbGFjZWhvbGRlcj0iaHR0cHM6Ly8iIC8+CiAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICA8L2Rpdj4KJycnCnJlcGxhY2Vfb25jZShsZWdhY3lfcHJvZmlsZSwgJyAgICAgICAgICAgICAgPEJ1c2luZXNzUHJvZmlsZVNldHVwIG9uQ29tcGxldGVDaGFuZ2U9e3NldEJ1c2luZXNzUHJvZmlsZVJlYWR5fSAvPlxuJykKCm1hcmtlciA9ICcnJyAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9ImdyaWQgbWQ6Z3JpZC1jb2xzLTIgZ2FwLTQiPgogICAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InNwYWNlLXktMiI+CiAgICAgICAgICAgICAgICAgIDxMYWJlbCBodG1sRm9yPSJhcHBvaW50bWVudC1tb2RlIj5HZXN0aW9uZSBhcHB1bnRhbWVudGk8L0xhYmVsPicnJwpyZXBsYWNlX29uY2UobWFya2VyLCAnICAgICAgICAgICAgICA8U2VydmljZXNGYXFTZXR1cCBvbkNvbXBsZXRlQ2hhbmdlPXtzZXRTZXJ2aWNlc1JlYWR5fSAvPlxuJyArIG1hcmtlcikKCm1hcmtlcjIgPSAnJycgICAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJncmlkIG1kOmdyaWQtY29scy0yIGdhcC00Ij4KICAgICAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJzcGFjZS15LTIiPgogICAgICAgICAgICAgICAgICA8TGFiZWwgaHRtbEZvcj0iYnVzaW5lc3MtaG91cnMiPk9yYXJpIGUgY29wZXJ0dXJhICo8L0xhYmVsPicnJwpyZXBsYWNlX29uY2UobWFya2VyMiwgJyAgICAgICAgICAgICAgPFZvaWNlT3BlcmF0aW9uc1NldHVwIG9uQ29tcGxldGVDaGFuZ2U9e3NldFZvaWNlT3BlcmF0aW9uc1JlYWR5fSAvPlxuJyArIG1hcmtlcjIpCgpyZXBsYWNlX29uY2UoCiAgICAnICAgICAgeyBsYWJlbDogIlByb2ZpbG8gYXR0aXZpdMOgIiwgcGFzc2VkOiBwcm9maWxlQ29tcGxldGUsIHJlcXVpcmVkOiB0cnVlIH0sXG4gICAgICB7IGxhYmVsOiAiT2JpZXR0aXZvIGUgbWV0cmljYSBkaSBzdWNjZXNzbyIsIHBhc3NlZDogb2JqZWN0aXZlc0NvbXBsZXRlLCByZXF1aXJlZDogdHJ1ZSB9LCcsCiAgICAnICAgICAgeyBsYWJlbDogIlByb2ZpbG8gYXR0aXZpdMOgIGUgY29udGF0dGkiLCBwYXNzZWQ6IHByb2ZpbGVDb21wbGV0ZSwgcmVxdWlyZWQ6IHRydWUgfSxcbiAgICAgIHsgbGFiZWw6ICJTZXJ2aXppLCBvYmlldHRpdm8gZSBtZXRyaWNhIiwgcGFzc2VkOiBvYmplY3RpdmVzQ29tcGxldGUsIHJlcXVpcmVkOiB0cnVlIH0sJywKKQpyZXBsYWNlX29uY2UoCiAgICAnICAgICAgeyBsYWJlbDogIlBhc3NhZ2dpbyB1bWFubyBlIGF6aW9uaSB2aWV0YXRlIiwgcGFzc2VkOiBoYW5kb2ZmQ29tcGxldGUsIHJlcXVpcmVkOiB0cnVlIH0sJywKICAgICcgICAgICB7IGxhYmVsOiAiT3JhcmksIGFnZW5kYSwgdGVsZWZvbmlhIGUgcGFzc2FnZ2lvIHVtYW5vIiwgcGFzc2VkOiBoYW5kb2ZmQ29tcGxldGUsIHJlcXVpcmVkOiB0cnVlIH0sJywKKQoKcGF0aC53cml0ZV90ZXh0KHRleHQpCg==
         run: |
-          from pathlib import Path
-
-          path = Path("src/pages/app/Onboarding.tsx")
-          text = path.read_text()
-
-          def replace_once(old: str, new: str):
-              global text
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"Expected exactly one match, found {count}: {old[:100]!r}")
-              text = text.replace(old, new, 1)
-
-          replace_once(
-              'import { toast } from "sonner";\n',
-              'import { toast } from "sonner";\nimport { BusinessProfileSetup } from "@/components/onboarding/BusinessProfileSetup";\nimport { ServicesFaqSetup } from "@/components/onboarding/ServicesFaqSetup";\nimport { VoiceOperationsSetup } from "@/components/onboarding/VoiceOperationsSetup";\n',
-          )
-
-          replace_once(
-              '  { id: 1, title: "Profilo", description: "Contesto dell\'attività", icon: Building2 },\n  { id: 2, title: "Obiettivi", description: "Risultati e volumi", icon: Target },\n  { id: 3, title: "Assistente", description: "Voce e comunicazione", icon: Volume2 },\n  { id: 4, title: "Escalation", description: "Limiti e passaggio umano", icon: ShieldAlert },\n  { id: 5, title: "Integrazioni", description: "Provider e dipendenze", icon: Settings },\n  { id: 6, title: "Go-live", description: "Criteri di accettazione", icon: CheckCircle2 },',
-              '  { id: 1, title: "La tua attività", description: "Identità, sede e contatti", icon: Building2 },\n  { id: 2, title: "Servizi", description: "Obiettivi, catalogo e FAQ", icon: Target },\n  { id: 3, title: "Receptionist AI", description: "Voce e comunicazione", icon: Volume2 },\n  { id: 4, title: "Regole operative", description: "Orari, agenda, telefonia e compliance", icon: ShieldAlert },\n  { id: 5, title: "Integrazioni", description: "Calendar e dipendenze", icon: Settings },\n  { id: 6, title: "Riepilogo", description: "Readiness e blocchi live", icon: CheckCircle2 },',
-          )
-
-          replace_once(
-              '  const [loadError, setLoadError] = useState<string | null>(null);\n\n  const [studioName, setStudioName] = useState("");',
-              '  const [loadError, setLoadError] = useState<string | null>(null);\n  const [businessProfileReady, setBusinessProfileReady] = useState(false);\n  const [servicesReady, setServicesReady] = useState(false);\n  const [voiceOperationsReady, setVoiceOperationsReady] = useState(false);\n\n  const [studioName, setStudioName] = useState("");',
-          )
-
-          replace_once('  const [address, setAddress] = useState("");\n  const [website, setWebsite] = useState("");\n', '')
-          replace_once('      setAddress(readString(prompt, "address"));\n      setWebsite(readString(prompt, "website"));\n', '')
-          replace_once('          address: address.trim(),\n          website: website.trim(),\n', '')
-
-          replace_once(
-              '  const profileComplete = Boolean(studioName.trim() && profession);\n  const objectivesComplete = Boolean(primaryGoal && successMetric.trim() && expectedVolume);\n',
-              '  const profileComplete = Boolean(studioName.trim() && profession && businessProfileReady);\n  const objectivesComplete = Boolean(primaryGoal && successMetric.trim() && expectedVolume && servicesReady);\n',
-          )
-          replace_once(
-              '      isValidOptionalE164(handoffPhone),\n  );',
-              '      isValidOptionalE164(handoffPhone) &&\n      voiceOperationsReady,\n  );',
-          )
-
-          legacy_profile = '''              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="address">Sede o area servita</Label>
-                  <Input id="address" value={address} onChange={(event) => setAddress(event.target.value)} maxLength={240} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="website">Sito web</Label>
-                  <Input id="website" type="url" value={website} onChange={(event) => setWebsite(event.target.value)} maxLength={300} placeholder="https://" />
-                </div>
-              </div>
-'''
-          replace_once(legacy_profile, '              <BusinessProfileSetup onCompleteChange={setBusinessProfileReady} />\n')
-
-          marker = '''              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="appointment-mode">Gestione appuntamenti</Label>'''
-          replace_once(marker, '              <ServicesFaqSetup onCompleteChange={setServicesReady} />\n' + marker)
-
-          marker2 = '''              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="business-hours">Orari e copertura *</Label>'''
-          replace_once(marker2, '              <VoiceOperationsSetup onCompleteChange={setVoiceOperationsReady} />\n' + marker2)
-
-          replace_once(
-              '      { label: "Profilo attività", passed: profileComplete, required: true },\n      { label: "Obiettivo e metrica di successo", passed: objectivesComplete, required: true },',
-              '      { label: "Profilo attività e contatti", passed: profileComplete, required: true },\n      { label: "Servizi, obiettivo e metrica", passed: objectivesComplete, required: true },',
-          )
-          replace_once(
-              '      { label: "Passaggio umano e azioni vietate", passed: handoffComplete, required: true },',
-              '      { label: "Orari, agenda, telefonia e passaggio umano", passed: handoffComplete, required: true },',
-          )
-
-          path.write_text(text)
+          echo "$PATCH_SCRIPT_B64" | base64 --decode > /tmp/onboarding_patch.py
+          python /tmp/onboarding_patch.py
       - name: Commit integration
         run: |
           if git diff --quiet; then
