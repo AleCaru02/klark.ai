@@ -1,4 +1,4 @@
-import twilio from "npm:twilio@6.0.2";
+import { validateRequest as validateTwilioRequest } from "npm:twilio@6.0.2/lib/webhooks/webhooks.js";
 
 export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
@@ -68,7 +68,7 @@ export async function verifyTwilioFormSignature(
   for (const [key, value] of form.entries()) params[key] = value;
 
   try {
-    return twilio.validateRequest(
+    return validateTwilioRequest(
       authToken,
       signatureHeader,
       requestUrl,
