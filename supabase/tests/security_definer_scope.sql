@@ -13,6 +13,21 @@ values
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'essential', 'active'),
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', 'essential', 'active');
 
+-- The fixture needs a compliant active Voice number only to prove that Tenant A
+-- cannot enumerate Tenant B through the SECURITY DEFINER helper. Simulate the
+-- post-E2E server state inside this transaction instead of weakening the runtime
+-- activation gate. The transaction rolls back at the end of the test.
+select set_config(
+  'request.jwt.claims',
+  '{"role":"service_role"}',
+  true
+);
+
+insert into public.settings (tenant_id, voice_runtime_verified)
+values ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', true)
+on conflict (tenant_id)
+do update set voice_runtime_verified = excluded.voice_runtime_verified;
+
 insert into public.tenant_phone_numbers(
   id,
   tenant_id,
