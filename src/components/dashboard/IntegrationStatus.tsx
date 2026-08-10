@@ -19,20 +19,6 @@ type ReadinessItem = {
   required?: boolean;
 };
 
-type OnboardingSnapshot = {
-  profile?: {
-    address_line1?: string | null;
-    city?: string | null;
-    postal_code?: string | null;
-    business_phone_e164?: string | null;
-    business_email?: string | null;
-    ai_disclosure_confirmed?: boolean | null;
-    callback_consent_required?: boolean | null;
-    dnc_respected?: boolean | null;
-  } | null;
-  services?: Array<{ name?: string }>;
-};
-
 type VoiceSnapshot = {
   onboardingConfigured: boolean;
   numberAssigned: boolean;
@@ -40,6 +26,10 @@ type VoiceSnapshot = {
   providerVerified: boolean;
   runtimeVerified: boolean;
   enabled: boolean;
+};
+
+type OnboardingSnapshot = {
+  voice?: VoiceSnapshot;
 };
 
 const emptyVoice: VoiceSnapshot = {
@@ -93,8 +83,7 @@ export function IntegrationStatus() {
   const [localError, setLocalError] = useState(false);
 
   useEffect(() => {
-    const tenantId = membership?.tenant_id;
-    if (!tenantId) {
+    if (!membership?.tenant_id) {
       setLocalLoading(false);
       setVoice(emptyVoice);
       return;
@@ -104,53 +93,11 @@ export function IntegrationStatus() {
       setLocalLoading(true);
       setLocalError(false);
       try {
-        const [settingsResult, phoneResult, onboardingResult] = await Promise.all([
-          supabase
-            .from("settings")
-            .select("voice_enabled,voice_runtime_verified,voice_number,twilio_number_sid")
-            .eq("tenant_id", tenantId)
-            .maybeSingle(),
-          supabase
-            .from("tenant_phone_numbers")
-            .select("phone_number,phone_type,status,provider_status,regulatory_status,twilio_sid")
-            .eq("tenant_id", tenantId)
-            .eq("phone_type", "voice")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          supabase.functions.invoke<OnboardingSnapshot>("onboarding-config", { body: { action: "get" } }),
-        ]);
-
-        if (settingsResult.error) throw settingsResult.error;
-        if (phoneResult.error) throw phoneResult.error;
-        if (onboardingResult.error) throw onboardingResult.error;
-
-        const profile = onboardingResult.data?.profile;
-        const onboardingConfigured = Boolean(
-          profile?.address_line1 &&
-          profile.city &&
-          profile.postal_code &&
-          profile.business_phone_e164 &&
-          profile.business_email &&
-          profile.ai_disclosure_confirmed === true &&
-          profile.callback_consent_required !== false &&
-          profile.dnc_respected !== false &&
-          (onboardingResult.data?.services?.length ?? 0) > 0,
-        );
-        const phone = phoneResult.data;
-        const settings = settingsResult.data;
-        const numberAssigned = Boolean(phone?.phone_number && phone.twilio_sid && settings?.twilio_number_sid);
-        const regulatoryApproved = phone?.regulatory_status === "approved";
-        const providerVerified = phone?.provider_status === "verified" && phone?.status === "active";
-
-        setVoice({
-          onboardingConfigured,
-          numberAssigned,
-          regulatoryApproved,
-          providerVerified,
-          runtimeVerified: settings?.voice_runtime_verified === true,
-          enabled: settings?.voice_enabled === true,
+        const { data, error } = await supabase.functions.invoke<OnboardingSnapshot>("onboarding-config", {
+          body: { action: "get" },
         });
+        if (error || !data?.voice) throw error ?? new Error("Voice readiness unavailable");
+        setVoice(data.voice);
       } catch {
         setLocalError(true);
         setVoice(emptyVoice);
