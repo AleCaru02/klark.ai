@@ -69,6 +69,7 @@ declare
   next_version integer;
   event_action text;
   next_status text;
+  event_payload jsonb;
 begin
   select * into source_row
   from public.tenant_knowledge
@@ -106,6 +107,40 @@ begin
     end if;
     event_action := 'knowledge.source_approved';
     next_status := 'completed';
+  elsif p_action = 'revoked' then
+    event_action := 'knowledge.source_revoked';
+    next_status := 'pending_review';
+  else
+    event_action := 'knowledge.source_reviewed';
+    next_status := source_row.status;
+  end if;
+
+  event_payload := jsonb_build_object(
+    'source_id', source_row.id,
+    'source_name', source_row.source_name,
+    'source_type', source_row.source_type,
+    'version', next_version,
+    'checksum', nullif(trim(coalesce(p_checksum, '')), ''),
+    'expires_at', p_expires_at,
+    'note', nullif(trim(coalesce(p_note, '')), ''),
+    'recorded_at', now()
+  );
+
+  -- The existing governance trigger only allows a transition to completed when
+  -- the latest audit event is an unexpired approval. Record approval first so
+  -- the trigger can validate the state transition atomically in this transaction.
+  if p_action = 'approved' then
+    insert into public.audit_log (
+      tenant_id,
+      actor_user_id,
+      action,
+      payload_json
+    ) values (
+      source_row.tenant_id,
+      auth.uid(),
+      event_action,
+      event_payload
+    );
 
     update public.tenant_knowledge
     set status = next_status,
@@ -117,9 +152,6 @@ begin
         updated_at = now()
     where id = source_row.id;
   elsif p_action = 'revoked' then
-    event_action := 'knowledge.source_revoked';
-    next_status := 'pending_review';
-
     update public.tenant_knowledge
     set status = next_status,
         approved_at = null,
@@ -128,31 +160,31 @@ begin
         approval_checksum = null,
         updated_at = now()
     where id = source_row.id;
-  else
-    event_action := 'knowledge.source_reviewed';
-    next_status := source_row.status;
-  end if;
 
-  insert into public.audit_log (
-    tenant_id,
-    actor_user_id,
-    action,
-    payload_json
-  ) values (
-    source_row.tenant_id,
-    auth.uid(),
-    event_action,
-    jsonb_build_object(
-      'source_id', source_row.id,
-      'source_name', source_row.source_name,
-      'source_type', source_row.source_type,
-      'version', next_version,
-      'checksum', nullif(trim(coalesce(p_checksum, '')), ''),
-      'expires_at', p_expires_at,
-      'note', nullif(trim(coalesce(p_note, '')), ''),
-      'recorded_at', now()
-    )
-  );
+    insert into public.audit_log (
+      tenant_id,
+      actor_user_id,
+      action,
+      payload_json
+    ) values (
+      source_row.tenant_id,
+      auth.uid(),
+      event_action,
+      event_payload
+    );
+  else
+    insert into public.audit_log (
+      tenant_id,
+      actor_user_id,
+      action,
+      payload_json
+    ) values (
+      source_row.tenant_id,
+      auth.uid(),
+      event_action,
+      event_payload
+    );
+  end if;
 
   return jsonb_build_object(
     'source_id', source_row.id,
