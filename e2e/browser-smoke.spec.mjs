@@ -85,7 +85,7 @@ async function login(page) {
   expect(response?.status(), 'direct /login must resolve through SPA fallback').toBe(200);
   await expect(page.getByRole('heading', { name: 'Accedi al tuo account', exact: true })).toBeVisible();
   await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
+  await page.locator('#password').fill(password);
   await Promise.all([
     page.waitForURL((url) => url.pathname.startsWith('/app'), { timeout: 20_000 }),
     page.getByRole('button', { name: 'Accedi', exact: true }).click(),
