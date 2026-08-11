@@ -8,6 +8,8 @@ on:
       - '.github/workflows/browser-e2e.yml'
       - 'e2e/**'
       - 'playwright.config.mjs'
+      - 'src/**'
+      - 'supabase/migrations/**'
   workflow_dispatch:
 
 permissions:
