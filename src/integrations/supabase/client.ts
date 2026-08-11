@@ -34,6 +34,8 @@ const SUPABASE_PUBLISHABLE_KEY = isSupabaseConfigured
   ? configuredPublishableKey!
   : "preview-backend-not-configured";
 
+export const supabaseFunctionsBase = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1`;
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storage: localStorage,
