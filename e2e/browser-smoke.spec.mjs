@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { installVercelAutomationBypass } from './helpers/vercel-bypass.mjs';
 
 const previewOrigin = process.env.E2E_BASE_URL;
-const vercelOidcToken = process.env.E2E_VERCEL_OIDC_TOKEN;
 const email = process.env.E2E_EMAIL;
 const password = process.env.E2E_PASSWORD;
-if (!previewOrigin || !vercelOidcToken || !email || !password) throw new Error('Missing E2E runtime credentials');
+if (!previewOrigin || !email || !password) throw new Error('Missing E2E runtime credentials');
 
 const supabaseOrigin = 'https://ipazbzctivqquwndifxh.supabase.co';
 const outDir = path.resolve('e2e-artifacts');
@@ -28,38 +28,6 @@ function isCriticalUrl(value) {
   } catch {
     return false;
   }
-}
-
-async function installTrustedSource(page) {
-  await page.context().route('**/*', async (route) => {
-    const request = route.request();
-    let isPreviewRequest = false;
-    try {
-      isPreviewRequest = new URL(request.url()).origin === previewOrigin;
-    } catch {
-      isPreviewRequest = false;
-    }
-    if (!isPreviewRequest) {
-      await route.continue();
-      return;
-    }
-
-    const headers = { ...request.headers(), 'x-vercel-trusted-oidc-idp-token': vercelOidcToken };
-    delete headers.host;
-    delete headers['content-length'];
-    const method = request.method();
-    const postData = request.postDataBuffer();
-    const upstream = await fetch(request.url(), {
-      method,
-      headers,
-      body: method === 'GET' || method === 'HEAD' ? undefined : postData,
-      redirect: 'manual',
-    });
-    const responseHeaders = Object.fromEntries(upstream.headers.entries());
-    for (const key of ['content-encoding', 'content-length', 'transfer-encoding', 'connection']) delete responseHeaders[key];
-    const body = method === 'HEAD' ? undefined : Buffer.from(await upstream.arrayBuffer());
-    await route.fulfill({ status: upstream.status, headers: responseHeaders, body });
-  });
 }
 
 function installDiagnostics(page, projectName) {
@@ -106,6 +74,7 @@ async function establishPreviewAccess(page) {
   await page.waitForLoadState('networkidle');
   await dismissTechnicalNotice(page);
   await expect(page.locator('#root')).toBeVisible();
+  await expect(page.getByText('Log in to Vercel', { exact: false })).toHaveCount(0);
   const assets = await page.evaluate(() => ({ scripts: [...document.scripts].filter((node) => node.src).length, styles: [...document.querySelectorAll('link[rel="stylesheet"]')].length }));
   expect(assets.scripts, 'no JS asset loaded').toBeGreaterThan(0);
   expect(assets.styles, 'no CSS asset loaded').toBeGreaterThan(0);
@@ -122,6 +91,9 @@ async function login(page) {
     page.getByRole('button', { name: 'Accedi', exact: true }).click(),
   ]);
   expect(new URL(page.url()).pathname).toBe('/app');
+  await page.reload({ waitUntil: 'networkidle' });
+  expect(new URL(page.url()).pathname).toBe('/app');
+  await expect(page.getByText(/Ecco un riepilogo dell'attività/)).toBeVisible();
 }
 
 async function choose(page, id, optionText) {
@@ -189,6 +161,11 @@ async function completeDesktopOnboarding(page) {
   await page.getByRole('button', { name: /Registra revisione/ }).click();
   await expect(page.getByRole('heading', { name: 'Riepilogo' })).toBeVisible();
   await expect(page.getByText('Numero telefonico non assegnato')).toBeVisible();
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('#studio-name')).toHaveValue('ClerkAI Browser E2E Tenant B');
+  const persistedRecording = page.getByText('Registrazione chiamate autorizzata per questo tenant (opzionale)').locator('..').locator('input[type="checkbox"]');
+  await expect(persistedRecording).not.toBeChecked();
 }
 
 async function verifyDashboard(page) {
@@ -266,14 +243,13 @@ async function verifyMobileOnboardingNavigation(page) {
 
 test('real browser smoke against exact protected preview', async ({ page }, testInfo) => {
   const projectName = testInfo.project.name;
-  await installTrustedSource(page);
+  await installVercelAutomationBypass(page);
   const { diagnostics, save } = installDiagnostics(page, projectName);
   page.on('dialog', (dialog) => dialog.dismiss());
   try {
     await establishPreviewAccess(page);
     await assertNoPageOverflow(page, 'public');
     await login(page);
-    await expect(page.getByText(/Ecco un riepilogo dell'attività/)).toBeVisible();
     if (projectName === 'desktop-chromium') {
       await completeDesktopOnboarding(page);
       await assertNoPageOverflow(page, 'desktop onboarding');

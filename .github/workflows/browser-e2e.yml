@@ -26,21 +26,8 @@ jobs:
       - name: Checkout exact commit
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install application dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Install Playwright runner without changing lockfile
-        run: |
-          npm install --no-save --no-package-lock @playwright/test@1.62.0
-          npx playwright install --with-deps chromium
-
-      - name: Wait for exact protected preview and bootstrap E2E session
+      - name: Wait for exact preview and bootstrap protected E2E session
+        id: bootstrap
         uses: actions/github-script@v7
         env:
           BOOTSTRAP_URL: https://ipazbzctivqquwndifxh.supabase.co/functions/v1/e2e-ci-bootstrap
@@ -56,7 +43,7 @@ jobs:
                   'content-type': 'application/json',
                   'x-github-oidc-token': githubOidc,
                 },
-                body: JSON.stringify({ runnerSha: process.env.GITHUB_SHA }),
+                body: JSON.stringify({ runnerSha: process.env.GITHUB_SHA, action: 'prepare' }),
               });
               const payload = await response.json().catch(() => ({}));
               if (response.status === 409 && payload.error === 'preview_sha_not_ready') {
@@ -64,32 +51,83 @@ jobs:
                 await sleep(30_000);
                 continue;
               }
+              if (response.status === 412 && payload.error === 'automation_bypass_not_ready') {
+                throw new Error('Vercel Protection Bypass for Automation is not configured for this project.');
+              }
+              if (response.status === 412 && payload.error === 'automation_bypass_probe_failed') {
+                throw new Error('Vercel Protection Bypass for Automation did not unlock the exact preview.');
+              }
               if (!response.ok) {
                 throw new Error(`E2E bootstrap failed with HTTP ${response.status}: ${payload.error || 'unknown_error'}`);
               }
               if (payload.runnerSha !== process.env.GITHUB_SHA) throw new Error('Bootstrap SHA mismatch');
-              for (const value of [payload.baseUrl, payload.vercelOidcToken, payload.email, payload.password]) {
+              for (const value of [payload.baseUrl, payload.automationBypassSecret, payload.email, payload.password]) {
                 if (!value) throw new Error('Bootstrap returned incomplete runtime data');
                 core.setSecret(String(value));
               }
               core.exportVariable('E2E_BASE_URL', payload.baseUrl);
-              core.exportVariable('E2E_VERCEL_OIDC_TOKEN', payload.vercelOidcToken);
+              core.exportVariable('VERCEL_AUTOMATION_BYPASS_SECRET', payload.automationBypassSecret);
               core.exportVariable('E2E_EMAIL', payload.email);
               core.exportVariable('E2E_PASSWORD', payload.password);
-              core.info('Exact protected preview accepted; short-lived Vercel Trusted Source token and E2E credentials exported without logging values.');
+              core.info('Exact preview accepted; Vercel automation bypass and ephemeral E2E credentials exported without logging values.');
               return;
             }
             throw new Error('Exact preview did not become available before timeout');
 
-      - name: Run real Chromium browser smoke
-        run: npx playwright test
+      - name: Setup Node.js
+        if: success()
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install application dependencies
+        if: success()
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright runner without changing lockfile
+        if: success()
+        run: |
+          npm install --no-save --no-package-lock @playwright/test@1.62.0
+          npx playwright install --with-deps chromium
+
+      - name: Probe protected preview in Chromium
+        if: success()
+        run: npx playwright test e2e/browser-probe.spec.mjs --project=desktop-chromium
+
+      - name: Run full real Chromium browser E2E
+        if: success()
+        run: npx playwright test e2e/browser-smoke.spec.mjs
+
+      - name: Cleanup Browser E2E tenant and transient state
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          BOOTSTRAP_URL: https://ipazbzctivqquwndifxh.supabase.co/functions/v1/e2e-ci-bootstrap
+        with:
+          script: |
+            const githubOidc = await core.getIDToken('clerkai-browser-e2e');
+            core.setSecret(githubOidc);
+            const response = await fetch(process.env.BOOTSTRAP_URL, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'x-github-oidc-token': githubOidc,
+              },
+              body: JSON.stringify({ runnerSha: process.env.GITHUB_SHA, action: 'cleanup' }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload.cleaned !== true) {
+              throw new Error(`E2E cleanup failed with HTTP ${response.status}: ${payload.error || 'unknown_error'}`);
+            }
+            core.info('Browser E2E tenant and transient state restored.');
 
       - name: Clear exported E2E values
         if: always()
         shell: bash
         run: |
           echo 'E2E_BASE_URL=' >> "$GITHUB_ENV"
-          echo 'E2E_VERCEL_OIDC_TOKEN=' >> "$GITHUB_ENV"
+          echo 'VERCEL_AUTOMATION_BYPASS_SECRET=' >> "$GITHUB_ENV"
           echo 'E2E_EMAIL=' >> "$GITHUB_ENV"
           echo 'E2E_PASSWORD=' >> "$GITHUB_ENV"
 

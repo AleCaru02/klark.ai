@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const baseURL = process.env.E2E_BASE_URL;
+const automationBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 if (!baseURL) throw new Error('E2E_BASE_URL is required');
+if (!automationBypassSecret) throw new Error('VERCEL_AUTOMATION_BYPASS_SECRET is required');
 
 export default defineConfig({
   testDir: './e2e',
