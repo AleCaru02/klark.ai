@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseFunctionsBase } from "@/integrations/supabase/client";
 import { usePlanFeatures } from "@/hooks/usePlanFeatures";
 import { toast } from "sonner";
 
@@ -162,7 +162,7 @@ export default function SiteChatbot() {
   const origins = useMemo(() => parseOrigins(originsText), [originsText]);
   const invalidOrigins = origins.filter((origin) => !validOrigin(origin));
   const canEnable = origins.length > 0 && invalidOrigins.length === 0 && stats.approvedSources > 0;
-  const apiBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+  const apiBase = supabaseFunctionsBase;
   const scriptUrl = `${window.location.origin}/clark-chat.js`;
   const embedCode = config ? `<script async src="${scriptUrl}" data-widget-key="${config.public_key}" data-api-base="${apiBase}"></script>` : "";
 

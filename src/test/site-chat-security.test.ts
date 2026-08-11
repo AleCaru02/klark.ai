@@ -22,6 +22,15 @@ describe("site chatbot product entitlements", () => {
     expect(guard).toContain('VITE_SITE_CHAT_RUNTIME_VERIFIED === "true"');
     expect(environment).toContain("VITE_SITE_CHAT_RUNTIME_VERIFIED=false");
   });
+
+  it("shares the candidate-safe Supabase functions runtime with the app client", () => {
+    const page = read("src/pages/app/SiteChatbot.tsx");
+    const client = read("src/integrations/supabase/client.ts");
+    expect(page).toContain("supabaseFunctionsBase");
+    expect(page).not.toContain("import.meta.env.VITE_SUPABASE_URL");
+    expect(client).toContain("export const supabaseFunctionsBase");
+    expect(client).toContain("CANDIDATE_SUPABASE_URL");
+  });
 });
 
 describe("site chatbot public embed security", () => {

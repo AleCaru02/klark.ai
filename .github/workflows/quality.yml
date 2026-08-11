@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - main
       - "agent/**"
   workflow_dispatch:
 
@@ -34,6 +35,19 @@ jobs:
         run: npm run test
       - name: Production build
         run: npm run build
+      - name: Build browser-certified candidate preview
+        env:
+          VITE_SITE_CHAT_RUNTIME_VERIFIED: "true"
+        run: npm run build
+      - name: Record preview artifact source commit
+        run: printf '%s\n' "$GITHUB_SHA" > dist/CLERKAI_PREVIEW_COMMIT.txt
+      - name: Upload preview static build
+        uses: actions/upload-artifact@v4
+        with:
+          name: clerkai-preview-dist-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
       - name: Lint changed service-flow files
         run: |
           npx eslint \
@@ -91,6 +105,7 @@ jobs:
         run: |
           deno test --config deno.json supabase/functions/_shared/security_test.ts
           deno test --config deno.json supabase/functions/_shared/site-chat_test.ts
+          deno test --config deno.json supabase/functions/_shared/crypto_test.ts
       - name: Check every Edge Function and shared module
         shell: bash
         run: |

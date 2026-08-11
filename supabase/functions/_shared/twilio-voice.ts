@@ -205,6 +205,7 @@ export async function resolveInboundTwilioContext(
   if (contactLookupError) throw contactLookupError;
 
   let contactId = existingContact?.id as string | undefined;
+  let createdContact = false;
   if (contactId) {
     const { error: touchError } = await supabase
       .from("contacts")
@@ -224,30 +225,48 @@ export async function resolveInboundTwilioContext(
       })
       .select("id")
       .single();
-    if (contactCreateError) throw contactCreateError;
-    contactId = contact.id as string;
 
-    const { error: sourceError } = await supabase.from("contact_sources").insert({
-      tenant_id: tenantId,
-      contact_id: contactId,
-      source: "manual",
-    });
-    if (sourceError) throw sourceError;
+    if (contactCreateError) {
+      // A concurrent webhook for the same tenant/phone may win the insert.
+      // The database unique index is the final authority; recover by loading the
+      // existing row rather than failing the call or creating a duplicate.
+      if (contactCreateError.code !== "23505") throw contactCreateError;
+      const { data: racedContact, error: racedContactError } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("phone_e164", normalizedFrom)
+        .single();
+      if (racedContactError) throw racedContactError;
+      contactId = racedContact.id as string;
+    } else {
+      contactId = contact.id as string;
+      createdContact = true;
+    }
 
-    const { data: stage, error: stageError } = await supabase
-      .from("stages")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("is_active", true)
-      .order("position", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (stageError) throw stageError;
-    if (stage?.id) {
-      const { error: assignmentError } = await supabase
-        .from("contact_stages")
-        .insert({ tenant_id: tenantId, contact_id: contactId, stage_id: stage.id });
-      if (assignmentError) throw assignmentError;
+    if (createdContact) {
+      const { error: sourceError } = await supabase.from("contact_sources").insert({
+        tenant_id: tenantId,
+        contact_id: contactId,
+        source: "manual",
+      });
+      if (sourceError) throw sourceError;
+
+      const { data: stage, error: stageError } = await supabase
+        .from("stages")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (stageError) throw stageError;
+      if (stage?.id) {
+        const { error: assignmentError } = await supabase
+          .from("contact_stages")
+          .insert({ tenant_id: tenantId, contact_id: contactId, stage_id: stage.id });
+        if (assignmentError) throw assignmentError;
+      }
     }
   }
 
@@ -307,9 +326,9 @@ export function gatherActionUrl(
   return xmlEscape(url.toString());
 }
 
-function normalizeE164(value: string): string | null {
+export function normalizeE164(value: string): string | null {
   const digits = value.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 15) return null;
+  if (digits.length < 8 || digits.length > 15 || digits.startsWith("0")) return null;
   return `+${digits}`;
 }
 

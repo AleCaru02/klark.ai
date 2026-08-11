@@ -33,14 +33,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchIntegrationStatus, type IntegrationStatus } from "@/hooks/useIntegrationStatus";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { BusinessProfileSetup } from "@/components/onboarding/BusinessProfileSetup";
+import { ServicesFaqSetup } from "@/components/onboarding/ServicesFaqSetup";
+import { VoiceOperationsSetup } from "@/components/onboarding/VoiceOperationsSetup";
 
 const steps = [
-  { id: 1, title: "Profilo", description: "Contesto dell'attività", icon: Building2 },
-  { id: 2, title: "Obiettivi", description: "Risultati e volumi", icon: Target },
-  { id: 3, title: "Assistente", description: "Voce e comunicazione", icon: Volume2 },
-  { id: 4, title: "Escalation", description: "Limiti e passaggio umano", icon: ShieldAlert },
-  { id: 5, title: "Integrazioni", description: "Provider e dipendenze", icon: Settings },
-  { id: 6, title: "Go-live", description: "Criteri di accettazione", icon: CheckCircle2 },
+  { id: 1, title: "La tua attività", description: "Identità, sede e contatti", icon: Building2 },
+  { id: 2, title: "Servizi", description: "Obiettivi, catalogo e FAQ", icon: Target },
+  { id: 3, title: "Receptionist AI", description: "Voce e comunicazione", icon: Volume2 },
+  { id: 4, title: "Regole operative", description: "Orari, agenda, telefonia e compliance", icon: ShieldAlert },
+  { id: 5, title: "Integrazioni", description: "Calendar e dipendenze", icon: Settings },
+  { id: 6, title: "Riepilogo", description: "Readiness e blocchi live", icon: CheckCircle2 },
 ] as const;
 
 const professions = [
@@ -108,11 +111,12 @@ export default function Onboarding() {
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
   const [isRefreshingIntegrations, setIsRefreshingIntegrations] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [businessProfileReady, setBusinessProfileReady] = useState(false);
+  const [servicesReady, setServicesReady] = useState(false);
+  const [voiceOperationsReady, setVoiceOperationsReady] = useState(false);
 
   const [studioName, setStudioName] = useState("");
   const [profession, setProfession] = useState("");
-  const [address, setAddress] = useState("");
-  const [website, setWebsite] = useState("");
 
   const [primaryGoal, setPrimaryGoal] = useState("");
   const [successMetric, setSuccessMetric] = useState("");
@@ -144,15 +148,16 @@ export default function Onboarding() {
   const [voiceNumberAssigned, setVoiceNumberAssigned] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(emptyIntegrationStatus);
 
-  const profileComplete = Boolean(studioName.trim() && profession);
-  const objectivesComplete = Boolean(primaryGoal && successMetric.trim() && expectedVolume);
+  const profileComplete = Boolean(studioName.trim() && profession && businessProfileReady);
+  const objectivesComplete = Boolean(primaryGoal && successMetric.trim() && expectedVolume && servicesReady);
   const assistantComplete = Boolean(selectedVoice && formality && greetingText.trim());
   const handoffComplete = Boolean(
     businessHours.trim() &&
       handoffContact.trim() &&
       handoffRules.trim() &&
       forbiddenActions.trim() &&
-      isValidOptionalE164(handoffPhone),
+      isValidOptionalE164(handoffPhone) &&
+      voiceOperationsReady,
   );
   const googleConnected = integrationStatus.google.connected;
   const whatsappConnected = integrationStatus.whatsapp.connected;
@@ -169,10 +174,10 @@ export default function Onboarding() {
 
   const checks = useMemo(
     () => [
-      { label: "Profilo attività", passed: profileComplete, required: true },
-      { label: "Obiettivo e metrica di successo", passed: objectivesComplete, required: true },
+      { label: "Profilo attività e contatti", passed: profileComplete, required: true },
+      { label: "Servizi, obiettivo e metrica", passed: objectivesComplete, required: true },
       { label: "Voce, formalità e saluto", passed: assistantComplete, required: true },
-      { label: "Passaggio umano e azioni vietate", passed: handoffComplete, required: true },
+      { label: "Orari, agenda, telefonia e passaggio umano", passed: handoffComplete, required: true },
       {
         label: "Google Calendar",
         passed: googleConnected,
@@ -240,8 +245,6 @@ export default function Onboarding() {
 
       setStudioName(readString(prompt, "studio_name", tenantResult.data?.name ?? ""));
       setProfession(readString(prompt, "profession"));
-      setAddress(readString(prompt, "address"));
-      setWebsite(readString(prompt, "website"));
 
       setPrimaryGoal(readString(prompt, "primary_goal"));
       setSuccessMetric(readString(prompt, "success_metric"));
@@ -349,8 +352,6 @@ export default function Onboarding() {
         {
           studio_name: studioName.trim(),
           profession,
-          address: address.trim(),
-          website: website.trim(),
           profile_reviewed_at: new Date().toISOString(),
         },
         "Profilo salvato",
@@ -652,16 +653,7 @@ export default function Onboarding() {
                   </Select>
                 </div>
               </div>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="address">Sede o area servita</Label>
-                  <Input id="address" value={address} onChange={(event) => setAddress(event.target.value)} maxLength={240} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="website">Sito web</Label>
-                  <Input id="website" type="url" value={website} onChange={(event) => setWebsite(event.target.value)} maxLength={300} placeholder="https://" />
-                </div>
-              </div>
+              <BusinessProfileSetup onCompleteChange={setBusinessProfileReady} />
               <div className="flex justify-end">
                 <Button onClick={() => void saveProfile()} disabled={isSaving || !profileComplete}>
                   {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
@@ -722,6 +714,7 @@ export default function Onboarding() {
                   placeholder="Elenca le richieste più frequenti e l'esito corretto atteso."
                 />
               </div>
+              <ServicesFaqSetup onCompleteChange={setServicesReady} />
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="appointment-mode">Gestione appuntamenti</Label>
@@ -822,6 +815,7 @@ export default function Onboarding() {
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
                 L'assistente non deve improvvisare. Qui vengono definite le condizioni in cui deve fermarsi, raccogliere contesto e coinvolgere una persona.
               </div>
+              <VoiceOperationsSetup onCompleteChange={setVoiceOperationsReady} />
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="business-hours">Orari e copertura *</Label>

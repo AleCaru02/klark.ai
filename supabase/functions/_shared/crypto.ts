@@ -1,3 +1,5 @@
+import { validateRequest as validateTwilioRequest } from "npm:twilio@6.0.2/lib/webhooks/webhooks.js";
+
 export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -47,22 +49,34 @@ export async function verifyMetaSignature(
   return constantTimeEqual(supplied, expected);
 }
 
+/**
+ * Validate form-encoded Twilio webhooks with Twilio's maintained validator.
+ *
+ * Keep the exact externally visible request URL: Twilio includes it in the
+ * signature calculation. URLSearchParams is converted to the parameter shape
+ * expected by twilio-node without logging credentials or request payloads.
+ */
 export async function verifyTwilioFormSignature(
   requestUrl: string,
   form: URLSearchParams,
   signatureHeader: string | null,
   authToken: string,
 ): Promise<boolean> {
-  if (!signatureHeader) return false;
+  if (!signatureHeader || !authToken) return false;
 
-  const sortedEntries = Array.from(form.entries()).sort(([left], [right]) =>
-    left.localeCompare(right)
-  );
-  let signedPayload = requestUrl;
-  for (const [key, value] of sortedEntries) signedPayload += `${key}${value}`;
+  const params: Record<string, string> = {};
+  for (const [key, value] of form.entries()) params[key] = value;
 
-  const expected = await hmacBase64("SHA-1", authToken, signedPayload);
-  return constantTimeEqual(signatureHeader, expected);
+  try {
+    return validateTwilioRequest(
+      authToken,
+      signatureHeader,
+      requestUrl,
+      params,
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function hmac(

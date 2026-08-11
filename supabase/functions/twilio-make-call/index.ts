@@ -35,6 +35,11 @@ interface MakeCallRequest {
   test_mode?: boolean;
 }
 
+interface TwilioRuntimeCredentials {
+  api_key_sid: string;
+  api_key_secret: string;
+}
+
 serve(async (request) => {
   const headers = corsHeaders(request);
   if (request.method === "OPTIONS") {
@@ -78,8 +83,6 @@ serve(async (request) => {
 
     await requireActiveTenant(supabase, body.tenant_id);
 
-    const parentAccountSid = requiredEnv("TWILIO_ACCOUNT_SID");
-    const parentAuthToken = requiredEnv("TWILIO_AUTH_TOKEN");
     const supabaseUrl = requiredEnv("SUPABASE_URL");
 
     const { data: contact, error: contactError } = await supabase
@@ -166,6 +169,23 @@ serve(async (request) => {
       throw new Error("Invalid Twilio subaccount SID");
     }
 
+    const { data: runtimeRows, error: runtimeError } = await supabase.rpc(
+      "get_twilio_runtime_credentials",
+      { p_subaccount_sid: subaccountSid },
+    );
+    if (runtimeError) throw new Error("Twilio runtime credentials are unavailable");
+    const runtimeCredentials = (Array.isArray(runtimeRows) ? runtimeRows[0] : runtimeRows) as
+      | TwilioRuntimeCredentials
+      | null;
+    if (
+      !runtimeCredentials ||
+      !/^SK[0-9A-Fa-f]{32}$/.test(runtimeCredentials.api_key_sid) ||
+      typeof runtimeCredentials.api_key_secret !== "string" ||
+      runtimeCredentials.api_key_secret.length < 16
+    ) {
+      throw new Error("Twilio runtime credentials are invalid");
+    }
+
     const contextQuery = new URLSearchParams({
       tenant_id: body.tenant_id,
       contact_id: body.contact_id,
@@ -199,7 +219,7 @@ serve(async (request) => {
     const twilioResponse = await fetch(twilioUrl, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${btoa(`${parentAccountSid}:${parentAuthToken}`)}`,
+        Authorization: `Basic ${btoa(`${runtimeCredentials.api_key_sid}:${runtimeCredentials.api_key_secret}`)}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: formData,
@@ -259,27 +279,32 @@ serve(async (request) => {
       call_sid: callData.sid,
       call_log_id: callLog.id,
       test_mode: testMode,
-      recording_requested: recordingRequested,
+      recording: recordingRequested,
     }, 200, headers);
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
-    const message = error instanceof Error ? error.message : "Internal server error";
-    console.error("[twilio-make-call] Error", error);
-    return jsonResponse({ error: status < 500 ? message : "Call initiation failed" }, status, headers);
+    const safeMessage = error instanceof AuthError
+      ? error.message
+      : "Unable to start Voice call";
+    if (!(error instanceof AuthError)) {
+      console.error("[twilio-make-call] Request failed", {
+        error_type: error instanceof Error ? error.name : typeof error,
+      });
+    }
+    return jsonResponse({ error: safeMessage }, status, headers);
   }
 });
 
 async function requirePlatformAdmin(
   supabase: ReturnType<typeof createServiceClient>,
-  accessToken: string,
+  token: string,
 ): Promise<void> {
-  if (!accessToken) throw new AuthError("Missing bearer token", 401);
-  const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
-  const userId = userData.user?.id;
-  if (userError || !userId) throw new AuthError("Invalid bearer token", 401);
+  if (!token) throw new AuthError("Missing authorization", 401);
+  const { data: authData, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !authData.user) throw new AuthError("Invalid authorization", 401);
+
   const { data: isAdmin, error: adminError } = await supabase.rpc("is_platform_admin", {
-    _user_id: userId,
+    _user_id: authData.user.id,
   });
-  if (adminError) throw adminError;
-  if (isAdmin !== true) throw new AuthError("Platform admin required for Voice test mode", 403);
+  if (adminError || isAdmin !== true) throw new AuthError("Platform admin required", 403);
 }
