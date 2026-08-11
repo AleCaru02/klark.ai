@@ -1,0 +1,37 @@
+name: Export ClerkAI Preview Artifact Temp
+
+on:
+  push:
+    branches:
+      - agent/mvp-production-readiness-20260810
+
+permissions:
+  contents: read
+
+concurrency:
+  group: export-clerkai-preview-artifact-temp
+  cancel-in-progress: true
+
+jobs:
+  build-preview-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build exact branch
+        run: npm run build
+      - name: Record source commit
+        run: printf '%s\n' "$GITHUB_SHA" > dist/CLERKAI_PREVIEW_COMMIT.txt
+      - name: Upload static build
+        uses: actions/upload-artifact@v4
+        with:
+          name: clerkai-preview-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
