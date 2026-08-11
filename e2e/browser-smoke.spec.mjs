@@ -164,6 +164,9 @@ async function completeDesktopOnboarding(page) {
 
   await page.reload({ waitUntil: 'networkidle' });
   await expect(page.locator('#studio-name')).toHaveValue('ClerkAI Browser E2E Tenant B');
+  const rulesStep = page.getByRole('button', { name: /Regole operative/ });
+  await expect(rulesStep).toBeEnabled();
+  await rulesStep.click();
   const persistedRecording = page.getByText('Registrazione chiamate autorizzata per questo tenant (opzionale)').locator('..').locator('input[type="checkbox"]');
   await expect(persistedRecording).not.toBeChecked();
 }
