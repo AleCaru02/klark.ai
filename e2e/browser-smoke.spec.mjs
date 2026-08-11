@@ -43,12 +43,14 @@ async function installTrustedSource(page) {
       await route.continue();
       return;
     }
-    await route.continue({
+    const response = await route.fetch({
       headers: {
         ...request.headers(),
         'x-vercel-trusted-oidc-idp-token': vercelOidcToken,
       },
+      maxRedirects: 0,
     });
+    await route.fulfill({ response });
   });
 }
 
@@ -80,11 +82,7 @@ function installDiagnostics(page, projectName) {
 }
 
 async function assertNoPageOverflow(page, label) {
-  const values = await page.evaluate(() => ({
-    doc: document.documentElement.scrollWidth,
-    body: document.body.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }));
+  const values = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, client: document.documentElement.clientWidth }));
   expect(Math.max(values.doc, values.body), `${label}: horizontal page overflow`).toBeLessThanOrEqual(values.client + 2);
 }
 
@@ -100,10 +98,7 @@ async function establishPreviewAccess(page) {
   await page.waitForLoadState('networkidle');
   await dismissTechnicalNotice(page);
   await expect(page.locator('#root')).toBeVisible();
-  const assets = await page.evaluate(() => ({
-    scripts: [...document.scripts].filter((node) => node.src).length,
-    styles: [...document.querySelectorAll('link[rel="stylesheet"]')].length,
-  }));
+  const assets = await page.evaluate(() => ({ scripts: [...document.scripts].filter((node) => node.src).length, styles: [...document.querySelectorAll('link[rel="stylesheet"]')].length }));
   expect(assets.scripts, 'no JS asset loaded').toBeGreaterThan(0);
   expect(assets.styles, 'no CSS asset loaded').toBeGreaterThan(0);
 }
@@ -236,9 +231,7 @@ async function verifyChatbot(page, sendMessage) {
   await expect(page.getByText('Attivo sui domini autorizzati')).toBeVisible();
   await page.evaluate(() => {
     const original = Element.prototype.attachShadow;
-    Element.prototype.attachShadow = function attachShadow(init) {
-      return original.call(this, { ...init, mode: 'open' });
-    };
+    Element.prototype.attachShadow = function attachShadow(init) { return original.call(this, { ...init, mode: 'open' }); };
   });
   await page.getByRole('button', { name: 'Testa widget' }).click();
   const launcher = page.getByRole('button', { name: 'Apri assistente' });
@@ -258,14 +251,7 @@ async function verifyChatbot(page, sendMessage) {
 async function verifyMobileOnboardingNavigation(page) {
   await page.goto(`${previewOrigin}/app/onboarding`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Configurazione operativa assistita' })).toBeVisible();
-  const checks = [
-    ['La tua attività', '#studio-name'],
-    ['Servizi', '#primary-goal'],
-    ['Receptionist AI', '#greeting'],
-    ['Regole operative', '#business-hours'],
-    ['Integrazioni', 'text=Google Calendar'],
-    ['Riepilogo', 'text=Riepilogo'],
-  ];
+  const checks = [['La tua attività', '#studio-name'], ['Servizi', '#primary-goal'], ['Receptionist AI', '#greeting'], ['Regole operative', '#business-hours'], ['Integrazioni', 'text=Google Calendar'], ['Riepilogo', 'text=Riepilogo']];
   for (const [step, selector] of checks) {
     const button = page.getByRole('button', { name: new RegExp(step) });
     await expect(button).toBeEnabled();
@@ -285,14 +271,12 @@ test('real browser smoke against exact protected preview', async ({ page }, test
     await assertNoPageOverflow(page, 'public');
     await login(page);
     await expect(page.getByText(/Ecco un riepilogo dell'attività/)).toBeVisible();
-
     if (projectName === 'desktop-chromium') {
       await completeDesktopOnboarding(page);
       await assertNoPageOverflow(page, 'desktop onboarding');
     } else {
       await verifyMobileOnboardingNavigation(page);
     }
-
     await verifyDashboard(page);
     await assertNoPageOverflow(page, `${projectName} dashboard`);
     await verifyCrm(page);
@@ -303,7 +287,6 @@ test('real browser smoke against exact protected preview', async ({ page }, test
     await assertNoPageOverflow(page, `${projectName} settings`);
     await verifyChatbot(page, projectName === 'desktop-chromium');
     await assertNoPageOverflow(page, `${projectName} chatbot`);
-
     expect(diagnostics.pageErrors, 'uncaught page errors').toEqual([]);
     expect(diagnostics.failedRequests, 'failed critical network requests').toEqual([]);
     expect(diagnostics.badResponses, 'unexpected first-party/Supabase HTTP 4xx/5xx').toEqual([]);
