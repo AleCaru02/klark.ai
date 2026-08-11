@@ -187,7 +187,7 @@ async function verifyDashboard(page) {
 
 async function verifyCrm(page) {
   await page.goto(`${previewOrigin}/app/crm`, { waitUntil: 'networkidle' });
-  await expect(page.getByText('CRM', { exact: true })).toBeVisible();
+  await expect(page.locator('#main-content').getByText('CRM', { exact: true })).toBeVisible();
   await expect(page.getByPlaceholder('Cerca contatti...')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Nuovo', exact: true })).toBeVisible();
   await expect(page.getByText(/Nessun contatto in questo foglio|Stato|Nome/).first()).toBeVisible();
