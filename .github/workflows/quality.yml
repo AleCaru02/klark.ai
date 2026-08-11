@@ -35,6 +35,10 @@ jobs:
         run: npm run test
       - name: Production build
         run: npm run build
+      - name: Build browser-certified candidate preview
+        env:
+          VITE_SITE_CHAT_RUNTIME_VERIFIED: "true"
+        run: npm run build
       - name: Record preview artifact source commit
         run: printf '%s\n' "$GITHUB_SHA" > dist/CLERKAI_PREVIEW_COMMIT.txt
       - name: Upload preview static build
