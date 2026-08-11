@@ -110,6 +110,7 @@ async function completeDesktopOnboarding(page) {
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Configurazione operativa assistita' })).toBeVisible();
   await expect(page.getByText('Completezza operativa')).toBeVisible();
+  await dismissTechnicalNotice(page);
   await page.locator('#studio-name').fill('ClerkAI Browser E2E Tenant B');
   await choose(page, 'profession', 'Property manager');
   await page.locator('#business-address').fill('Via E2E 1');
@@ -234,6 +235,7 @@ async function verifyChatbot(page, sendMessage) {
 async function verifyMobileOnboardingNavigation(page) {
   await page.goto(`${previewOrigin}/app/onboarding`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Configurazione operativa assistita' })).toBeVisible();
+  await dismissTechnicalNotice(page);
   const checks = [['La tua attività', '#studio-name'], ['Servizi', '#primary-goal'], ['Receptionist AI', '#greeting'], ['Regole operative', '#business-hours'], ['Integrazioni', 'text=Google Calendar'], ['Riepilogo', 'text=Riepilogo']];
   for (const [step, selector] of checks) {
     const button = page.getByRole('button', { name: new RegExp(step) });
