@@ -54,8 +54,10 @@ $$;
 
 reset role;
 
+-- refresh_token is NOT NULL by schema; an empty value is the fail-closed
+-- representation of an unusable/missing refresh credential for this test.
 update public.google_tokens
-set refresh_token = null
+set refresh_token = ''
 where tenant_id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc3';
 
 set local role authenticated;
@@ -72,7 +74,11 @@ begin
   status := public.get_integration_status();
 
   if coalesce((status #>> '{google,expired}')::boolean, false) is not true then
-    raise exception 'Expired access token without refresh token must require reconnection';
+    raise exception 'Expired access token without usable refresh token must require reconnection';
+  end if;
+
+  if coalesce((status #>> '{google,refresh_available}')::boolean, true) is not false then
+    raise exception 'Empty refresh token must not be reported available';
   end if;
 end
 $$;
