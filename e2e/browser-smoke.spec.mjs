@@ -83,7 +83,7 @@ async function establishPreviewAccess(page) {
 async function login(page) {
   const response = await page.goto(`${previewOrigin}/login`, { waitUntil: 'networkidle' });
   expect(response?.status(), 'direct /login must resolve through SPA fallback').toBe(200);
-  await expect(page.getByRole('heading', { name: 'Accedi', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Accedi al tuo account', exact: true })).toBeVisible();
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await Promise.all([
