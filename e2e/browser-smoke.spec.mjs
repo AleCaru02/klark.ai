@@ -204,7 +204,7 @@ async function verifyCalendar(page) {
 async function verifySettings(page) {
   await page.goto(`${previewOrigin}/app/settings`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Impostazioni' })).toBeVisible();
-  await expect(page.getByText(email, { exact: true })).toBeVisible();
+  await expect(page.locator('#main-content').getByText(email, { exact: true })).toBeVisible();
   await expect(page.locator('#businessName')).toHaveValue('ClerkAI Browser E2E Tenant B');
 }
 
