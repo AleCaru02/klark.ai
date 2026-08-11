@@ -31,10 +31,21 @@ function isCriticalUrl(value) {
 }
 
 async function installTrustedSource(page) {
-  await page.context().route(`${previewOrigin}/**`, async (route) => {
+  await page.context().route('**/*', async (route) => {
+    const request = route.request();
+    let isPreviewRequest = false;
+    try {
+      isPreviewRequest = new URL(request.url()).origin === previewOrigin;
+    } catch {
+      isPreviewRequest = false;
+    }
+    if (!isPreviewRequest) {
+      await route.continue();
+      return;
+    }
     await route.continue({
       headers: {
-        ...route.request().headers(),
+        ...request.headers(),
         'x-vercel-trusted-oidc-idp-token': vercelOidcToken,
       },
     });
