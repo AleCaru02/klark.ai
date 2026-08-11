@@ -43,14 +43,22 @@ async function installTrustedSource(page) {
       await route.continue();
       return;
     }
-    const response = await route.fetch({
-      headers: {
-        ...request.headers(),
-        'x-vercel-trusted-oidc-idp-token': vercelOidcToken,
-      },
-      maxRedirects: 0,
+
+    const headers = { ...request.headers(), 'x-vercel-trusted-oidc-idp-token': vercelOidcToken };
+    delete headers.host;
+    delete headers['content-length'];
+    const method = request.method();
+    const postData = request.postDataBuffer();
+    const upstream = await fetch(request.url(), {
+      method,
+      headers,
+      body: method === 'GET' || method === 'HEAD' ? undefined : postData,
+      redirect: 'manual',
     });
-    await route.fulfill({ response });
+    const responseHeaders = Object.fromEntries(upstream.headers.entries());
+    for (const key of ['content-encoding', 'content-length', 'transfer-encoding', 'connection']) delete responseHeaders[key];
+    const body = method === 'HEAD' ? undefined : Buffer.from(await upstream.arrayBuffer());
+    await route.fulfill({ status: upstream.status, headers: responseHeaders, body });
   });
 }
 
@@ -130,7 +138,6 @@ async function completeDesktopOnboarding(page) {
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Configurazione operativa assistita' })).toBeVisible();
   await expect(page.getByText('Completezza operativa')).toBeVisible();
-
   await page.locator('#studio-name').fill('ClerkAI Browser E2E Tenant B');
   await choose(page, 'profession', 'Property manager');
   await page.locator('#business-address').fill('Via E2E 1');
@@ -143,7 +150,6 @@ async function completeDesktopOnboarding(page) {
   await expect(page.getByText('Dati azienda salvati')).toBeVisible();
   await page.getByRole('button', { name: /Salva e definisci gli obiettivi/ }).click();
   await expect(page.getByRole('heading', { name: 'Servizi' })).toBeVisible();
-
   await choose(page, 'primary-goal', 'Ridurre richieste senza risposta');
   await choose(page, 'expected-volume', 'Fino a 20 richieste a settimana');
   await page.locator('#success-metric').fill('E2E: zero errori bloccanti nel flusso browser');
@@ -155,12 +161,10 @@ async function completeDesktopOnboarding(page) {
   await choose(page, 'appointment-mode', 'Prenota direttamente sul calendario');
   await page.getByRole('button', { name: /Salva obiettivi/ }).click();
   await expect(page.getByRole('heading', { name: 'Receptionist AI' })).toBeVisible();
-
   await page.locator('#greeting').fill('Ciao, sono l’assistente AI di test ClerkAI. Come posso aiutarti?');
   await page.locator('#tone-notes').fill('E2E: risposte concise; non inventare dati.');
   await page.getByRole('button', { name: /Salva assistente/ }).click();
   await expect(page.getByRole('heading', { name: 'Regole operative' })).toBeVisible();
-
   await fieldByLabelText(page, 'Policy callback *').fill('Solo richieste autorizzate durante gli orari di test.');
   await fieldByLabelText(page, 'Escalation *').fill('Escalation a referente umano per richieste non risolvibili.');
   await fieldByLabelText(page, 'Fuori orario *').fill('Raccogli richiesta e proponi richiamo nel primo orario utile.');
@@ -170,7 +174,6 @@ async function completeDesktopOnboarding(page) {
   await expect(recording).not.toBeChecked();
   await page.getByRole('button', { name: 'Salva configurazione operativa' }).click();
   await expect(page.getByText('Orari, agenda e regole Voice salvati')).toBeVisible();
-
   await page.locator('#business-hours').fill('Lun-Ven 09:00-18:00');
   await page.locator('#handoff-contact').fill('Referente E2E');
   await page.locator('#handoff-rules').fill('Passa a una persona su richiesta esplicita o informazione non disponibile.');
