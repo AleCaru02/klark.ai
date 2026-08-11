@@ -48,13 +48,13 @@ jobs:
           script: |
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             for (let attempt = 1; attempt <= 40; attempt += 1) {
-              const oidc = await core.getIDToken('clerkai-browser-e2e');
-              core.setSecret(oidc);
+              const githubOidc = await core.getIDToken('clerkai-browser-e2e');
+              core.setSecret(githubOidc);
               const response = await fetch(process.env.BOOTSTRAP_URL, {
                 method: 'POST',
                 headers: {
                   'content-type': 'application/json',
-                  'x-github-oidc-token': oidc,
+                  'x-github-oidc-token': githubOidc,
                 },
                 body: JSON.stringify({ runnerSha: process.env.GITHUB_SHA }),
               });
@@ -68,17 +68,15 @@ jobs:
                 throw new Error(`E2E bootstrap failed with HTTP ${response.status}: ${payload.error || 'unknown_error'}`);
               }
               if (payload.runnerSha !== process.env.GITHUB_SHA) throw new Error('Bootstrap SHA mismatch');
-              for (const value of [payload.shareUrl, payload.email, payload.password]) {
+              for (const value of [payload.baseUrl, payload.vercelOidcToken, payload.email, payload.password]) {
                 if (!value) throw new Error('Bootstrap returned incomplete runtime data');
                 core.setSecret(String(value));
               }
-              const origin = new URL(payload.shareUrl).origin;
-              core.setSecret(origin);
-              core.exportVariable('E2E_SHARE_URL', payload.shareUrl);
-              core.exportVariable('E2E_BASE_URL', origin);
+              core.exportVariable('E2E_BASE_URL', payload.baseUrl);
+              core.exportVariable('E2E_VERCEL_OIDC_TOKEN', payload.vercelOidcToken);
               core.exportVariable('E2E_EMAIL', payload.email);
               core.exportVariable('E2E_PASSWORD', payload.password);
-              core.info('Exact protected preview accepted by SHA guard; E2E credentials exported without logging values.');
+              core.info('Exact protected preview accepted; short-lived Vercel Trusted Source token and E2E credentials exported without logging values.');
               return;
             }
             throw new Error('Exact preview did not become available before timeout');
@@ -90,8 +88,8 @@ jobs:
         if: always()
         shell: bash
         run: |
-          echo 'E2E_SHARE_URL=' >> "$GITHUB_ENV"
           echo 'E2E_BASE_URL=' >> "$GITHUB_ENV"
+          echo 'E2E_VERCEL_OIDC_TOKEN=' >> "$GITHUB_ENV"
           echo 'E2E_EMAIL=' >> "$GITHUB_ENV"
           echo 'E2E_PASSWORD=' >> "$GITHUB_ENV"
 
